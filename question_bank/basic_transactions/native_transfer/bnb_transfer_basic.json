@@ -1,0 +1,85 @@
+{
+  "id": "bnb_transfer_basic",
+  "category": "native_transfer",
+  "difficulty": 1,
+  "title": "Basic BNB Transfer",
+  "description": [
+    "Transfer a fixed amount of BNB from one address to another.",
+    "",
+    "Technical context:",
+    "- This is a simple EOA (Externally Owned Account) to EOA transfer",
+    "- Standard gas limit for simple transfers: 21000",
+    "- Use EIP-1559 transaction format (type: 2)"
+  ],
+  
+  "natural_language_templates": [
+    "Transfer {amount} to {to_address}",
+    "Send {amount} to address {to_address}",
+    "Please send {amount} BNB to {to_address}",
+    "I want to transfer {amount} to {to_address}"
+  ],
+  
+  "parameters": {
+    "to_address": {
+      "type": "address",
+      "role": "receiver",
+      "description": "Recipient address",
+      "generation": {
+        "method": "random"
+      }
+    },
+    "amount": {
+      "type": "number",
+      "unit": "BNB",
+      "description": "Transfer amount in BNB",
+      "generation": {
+        "min": 0.001,
+        "max": 0.1,
+        "decimals": 3
+      }
+    }
+  },
+  
+  "validation_rules": [
+    {
+      "type": "transaction_success",
+      "weight": 30,
+      "description": "Transaction must execute successfully"
+    },
+    {
+      "type": "address_check",
+      "field": "to",
+      "expected": "{to_address}",
+      "weight": 25,
+      "description": "Target address must be correct"
+    },
+    {
+      "type": "value_check",
+      "field": "value",
+      "expected": "{amount}",
+      "tolerance": 0.001,
+      "weight": 25,
+      "description": "Transfer amount must be correct"
+    },
+    {
+      "type": "gas_check",
+      "min_gas": 21000,
+      "max_gas_ratio": 3,
+      "weight": 10,
+      "description": "Gas settings must be reasonable"
+    },
+    {
+      "type": "balance_change",
+      "address": "sender",
+      "expected_change": "-{amount}",
+      "tolerance": 0.01,
+      "weight": 10,
+      "description": "Balance change must be correct"
+    }
+  ],
+  
+  "version": "2.0.0",
+  "created_at": "2025-11-10",
+  "updated_at": "2025-11-12"
+}
+
