@@ -24,10 +24,10 @@
     "- After approval, allowance(owner, spender) should return the approved amount"
   ],
   "natural_language_templates": [
-    "Approve {spender_address} to spend {amount} {token_symbol} tokens at {token_address} with callback",
-    "Use approveAndCall to authorize {spender_address} to use {amount} {token_symbol} (token: {token_address})",
-    "I want to approve {spender_address} for {amount} {token_symbol} tokens at {token_address} using ERC1363's callback feature",
-    "Grant approval to {spender_address} for {amount} {token_symbol} at {token_address} with automatic notification"
+    "Approve {spender_address} to spend {amount} {token_symbol} tokens with callback",
+    "Use ERC1363 approveAndCall to authorize {spender_address} to use {amount} {token_symbol}",
+    "Grant approval to {spender_address} for {amount} {token_symbol} using the ERC1363 token's callback feature",
+    "Approve {amount} {token_symbol} for {spender_address} with automatic onApprovalReceived callback"
   ],
   "parameters": {
     "token_address": {

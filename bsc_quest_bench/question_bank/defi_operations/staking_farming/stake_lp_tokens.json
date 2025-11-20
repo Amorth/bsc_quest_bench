@@ -105,10 +105,10 @@
     }
   },
   "natural_language_templates": [
-    "Stake {stake_amount} LP tokens to the farming pool at {pool_address}",
-    "Deposit {stake_amount} LP tokens to earn farming rewards",
-    "Put {stake_amount} LP tokens into the farming pool {pool_address}",
-    "Stake {stake_amount} USDT/BUSD LP tokens in the farming pool to start earning"
+    "Stake {stake_amount} USDT/BUSD LP tokens in the SimpleLPStaking pool",
+    "Deposit {stake_amount} LP tokens to the LP staking pool to earn farming rewards",
+    "Stake {stake_amount} USDT/BUSD LP tokens using the simple_lp_staking contract",
+    "Put {stake_amount} liquidity provider tokens into the LP staking pool to start earning"
   ],
   "contracts": {
     "simple_lp_staking": {

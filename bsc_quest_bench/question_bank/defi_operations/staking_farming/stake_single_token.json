@@ -71,10 +71,10 @@
     }
   },
   "natural_language_templates": [
-    "Stake {stake_amount} CAKE tokens to the PancakeSwap Syrup Pool at {pool_address}",
-    "Deposit {stake_amount} CAKE to earn rewards in the Syrup Pool",
-    "Put {stake_amount} CAKE tokens into staking pool {pool_address}",
-    "Stake {stake_amount} CAKE in the farming pool to start earning"
+    "Stake {stake_amount} CAKE tokens in the SimpleStaking pool",
+    "Deposit {stake_amount} CAKE to the simple_staking contract to earn rewards",
+    "Put {stake_amount} CAKE tokens into the single-token staking pool",
+    "Stake {stake_amount} CAKE in the single token farming pool to start earning"
   ],
   "contracts": {
     "simple_staking": {

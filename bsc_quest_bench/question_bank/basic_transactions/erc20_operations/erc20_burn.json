@@ -7,9 +7,9 @@
   "title": "ERC20 Token Burn",
   "natural_language_templates": [
     "Burn {amount} {token_symbol} tokens",
-    "Destroy {amount} {token_symbol} tokens permanently",
-    "Remove {amount} {token_symbol} from circulation",
-    "I want to burn {amount} {token_symbol}"
+    "Destroy {amount} {token_symbol} tokens permanently by sending to zero address",
+    "Remove {amount} {token_symbol} from circulation using the test token",
+    "Burn {amount} {token_symbol} from the ERC1363 test token"
   ],
   "description": [
     "Burn (destroy) ERC20 tokens by transferring them to the zero address (0x0000...0000), permanently removing them from circulation.",

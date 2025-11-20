@@ -147,12 +147,13 @@ class QuestBenchRunner:
     
     def __init__(self, model_name: str, api_key: Optional[str] = None, 
                  base_url: Optional[str] = None, fork_url: str = "https://bsc-testnet.drpc.org",
-                 run_index: int = 0):
+                 run_index: int = 0, naive_mode: bool = False):
         self.model_name = model_name
         self.api_key = api_key
         self.base_url = base_url
         self.fork_url = fork_url
         self.run_index = run_index
+        self.naive_mode = naive_mode
         
         # Results storage
         self.results = {
@@ -282,19 +283,35 @@ class QuestBenchRunner:
             base_url=self.base_url,
             fork_url=self.fork_url,
             test_mode=False,  # Use LLM
-            env=env
+            env=env,
+            naive_mode=self.naive_mode
         )
         
         # Run evaluation
         try:
             result = await controller.run()
             
+            # Handle None result (execution failed before returning result)
+            if result is None:
+                print(f"❌ Error: controller.run() returned None for question {question_id}")
+                return {
+                    'question_id': question_id,
+                    'execution_success': False,
+                    'validation_passed': False,
+                    'score': 0,
+                    'max_score': 100,
+                    'error': 'Execution failed: controller.run() returned None'
+                }
+            
+            # Safely extract validation_result (handle None case)
+            validation_result = result.get('validation_result') or {}
+            
             return {
                 'question_id': result['question_id'],
                 'execution_success': result['execution_success'],
-                'validation_passed': result.get('validation_result', {}).get('passed', False),
-                'score': result.get('validation_result', {}).get('score', 0),
-                'max_score': result.get('validation_result', {}).get('max_score', 100),
+                'validation_passed': validation_result.get('passed', False),
+                'score': validation_result.get('score', 0),
+                'max_score': validation_result.get('max_score', 100),
                 'generated_params': result.get('generated_params', {}),
                 'llm_response': result.get('llm_response', ''),
                 'error': result.get('error')
@@ -428,6 +445,11 @@ Examples:
         default='https://bsc-testnet.drpc.org',
         help='BSC RPC URL to fork with Anvil (default: DRPC BSC Testnet)'
     )
+    parser.add_argument(
+        '--naive-mode',
+        action='store_true',
+        help='Naive mode: Include detailed implementation guidance in prompts (easier, default: False)'
+    )
     
     args = parser.parse_args()
     
@@ -456,6 +478,7 @@ Examples:
         print("="*80)
         print(f"Model: {args.model}")
         print(f"Type: {args.type}")
+        print(f"Difficulty: {'Naive (with guidance)' if args.naive_mode else 'Normal (pure NL)'}")
         print(f"Fork URL: {args.fork_url}")
         print(f"Log File: {log_filepath}")
         print("="*80 + "\n")
@@ -466,7 +489,8 @@ Examples:
             api_key=args.api_key,
             base_url=args.base_url,
             fork_url=args.fork_url,
-            run_index=args.run_index
+            run_index=args.run_index,
+            naive_mode=args.naive_mode
         )
         
         # Determine questions to test

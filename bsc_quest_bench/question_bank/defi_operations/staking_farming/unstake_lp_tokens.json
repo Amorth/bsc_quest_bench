@@ -28,10 +28,10 @@
     "5. Verify staked amount decreased by unstake amount"
   ],
   "natural_language_templates": [
-    "Unstake {unstake_amount} LP tokens from the pool at {pool_address}",
-    "Withdraw {unstake_amount} LP tokens from the farming pool",
-    "Remove {unstake_amount} LP tokens from staking",
-    "Unstake {unstake_amount} USDT/BUSD LP tokens from the reward pool"
+    "Unstake {unstake_amount} USDT/BUSD LP tokens from the SimpleRewardPool",
+    "Withdraw {unstake_amount} LP tokens from the simple_reward_pool contract",
+    "Remove {unstake_amount} LP tokens from the reward pool staking",
+    "Unstake {unstake_amount} USDT/BUSD LP tokens from the reward distribution pool"
   ],
   "parameters": {
     "pool_address": {

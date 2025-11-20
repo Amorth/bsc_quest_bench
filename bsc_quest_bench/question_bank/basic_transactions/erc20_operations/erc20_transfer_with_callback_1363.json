@@ -21,9 +21,9 @@
   ],
   "natural_language_templates": [
     "Transfer {amount} {token_symbol} tokens to contract {to_address} using ERC1363 transferAndCall",
-    "Send {amount} {token_symbol} (ERC1363) to {to_address} with automatic callback",
-    "Use transferAndCall to send {amount} {token_symbol} tokens at {token_address} to contract {to_address}",
-    "I want to transfer {amount} {token_symbol} tokens to {to_address} using ERC1363's callback feature at token address {token_address}"
+    "Send {amount} {token_symbol} to {to_address} with automatic callback using the ERC1363 token",
+    "Use ERC1363 transferAndCall to send {amount} {token_symbol} tokens to contract {to_address}",
+    "Transfer {amount} {token_symbol} tokens to {to_address} with callback notification"
   ],
   "parameters": {
     "token_address": {

@@ -37,9 +37,10 @@ class QuestController:
         api_key: Optional[str] = None,
         base_url: Optional[str] = None,
         fork_url: str = "https://bsc-testnet.drpc.org",
-        test_mode: bool = False,
-        test_code_path: Optional[str] = None,
-        env: Optional[QuestEnvironment] = None
+            test_mode: bool = False,
+            test_code_path: Optional[str] = None,
+            env: Optional[QuestEnvironment] = None,
+            naive_mode: bool = False
     ):
         """
         初始化控制器
@@ -54,6 +55,7 @@ class QuestController:
             test_mode: 测试模式，使用预先编写的代码而不是调用 LLM
             test_code_path: 测试代码路径（仅测试模式有效）
             env: 可选的已存在的 QuestEnvironment 实例（用于复用 Anvil）
+            naive_mode: Naive 模式，在提示词中包含问题的 description 字段（默认 False，用于控制难度）
         """
         self.model_name = model_name
         self.question_path = question_path
@@ -64,6 +66,7 @@ class QuestController:
         self.test_mode = test_mode
         self.test_code_path = test_code_path
         self.reuse_env = env  # 可复用的环境实例
+        self.naive_mode = naive_mode  # 是否使用 Naive 模式
         
         # 加载系统配置
         self.system_config = self._load_system_config()
@@ -293,11 +296,15 @@ class QuestController:
     
     def _generate_system_prompt(self) -> str:
         """
-        Generate system prompt with four parts:
+        Generate system prompt with three or four parts:
         1. Role prompt (same for all questions)
         2. Environment description (same for all questions)
-        3. Question-specific context (optional, from question description)
+        3. Question-specific context (optional, ONLY if naive_mode=True)
         4. Natural language prompt (unique per question, with random values)
+        
+        By default (naive_mode=False), only parts 1, 2, and 4 are used.
+        This keeps the prompt minimal and tests the LLM's pure understanding ability.
+        Naive mode (naive_mode=True) includes detailed implementation guidance.
         """
         # Part 1: Role prompt (支持数组或字符串格式)
         role_prompt_raw = self.system_config['role_prompt']
@@ -307,9 +314,9 @@ class QuestController:
         env_description_raw = self.system_config['environment_description']
         env_description = '\n'.join(env_description_raw) if isinstance(env_description_raw, list) else env_description_raw
         
-        # Part 3: Question-specific context (optional, from description field)
+        # Part 3: Question-specific context (optional, controlled by naive_mode flag)
         question_context = ""
-        if 'description' in self.question:
+        if self.naive_mode and 'description' in self.question:
             description_raw = self.question['description']
             description = '\n'.join(description_raw) if isinstance(description_raw, list) else description_raw
             question_context = f"\n\nContext for this task:\n{description}"

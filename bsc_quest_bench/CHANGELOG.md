@@ -1,5 +1,57 @@
 # Changelog - Architecture Refactoring
 
+## Version 2.1.0 (2025-01-20)
+
+### Major Changes
+
+#### 1. Enhanced Environment Description
+- **Added**: Complete `deployedContracts` mapping in environment description
+- **Added**: Contract naming guidelines and usage instructions
+- **Added**: Anvil fork environment description
+- **Rationale**: LLM can now infer correct contract addresses from environment info
+
+#### 2. Difficulty Control Mechanism
+- **Added**: `--naive-mode` command-line flag
+- **Default Mode (Normal)**: Only Role + Environment + Natural Language
+  - Tests LLM's pure understanding and inference ability
+  - Simulates real user scenarios
+- **Naive Mode**: Includes question `description` field
+  - Provides step-by-step implementation guidance
+  - Suitable for simpler LLMs or debugging
+
+#### 3. Optimized Natural Language Templates
+- **Updated**: All staking-related questions with semantic hints
+  - `simple_staking` → "single token staking pool"
+  - `simple_lp_staking` → "SimpleLPStaking", "LP staking pool"
+  - `simple_reward_pool` → "SimpleRewardPool", "reward distribution pool"
+- **Updated**: ERC1363 related questions
+  - Clearer references to "ERC1363 token", "T1363"
+  - Better callback feature descriptions
+
+#### 4. New Documentation
+- **Created**: `docs/prompt_design_philosophy.md`
+  - Prompt design principles and best practices
+  - Natural language template design guidelines
+  - Contract naming conventions
+  - Difficulty control usage guide
+
+### Bug Fixes
+- Fixed issue where LLM couldn't find test contract addresses in `deployedContracts`
+- Corrected mismatched contract key names between prompt and actual deployment
+
+### Technical Details
+- Modified `QuestController.__init__()` to accept `naive_mode` parameter
+- Modified `QuestController._generate_system_prompt()` to conditionally include description
+- Updated `QuestBenchRunner` to support difficulty control
+- Updated `system_config.json` with comprehensive environment description
+
+### Breaking Changes
+- None (backward compatible)
+- Default behavior changed: `description` field no longer included in prompts by default
+- Use `--naive-mode` flag to restore previous behavior
+
+---
+
 ## Version 2.0.0 (2025-11-12)
 
 ### Major Changes
