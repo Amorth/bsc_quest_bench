@@ -2,7 +2,7 @@
 pragma solidity ^0.8.0;
 
 /**
- * @title TestERC1363Token
+ * @title ERC1363Token
  * @dev ERC1363 Token implementation for testing
  * 
  * ERC1363 is an extension of ERC20 that supports executing code on receiver contracts
@@ -26,9 +26,9 @@ interface IERC1363Spender {
     ) external returns (bytes4);
 }
 
-contract TestERC1363Token {
-    string public name = "Test ERC1363 Token";
-    string public symbol = "T1363";
+contract ERC1363Token {
+    string public name = "ERC1363 Token";
+    string public symbol = "E1363";
     uint8 public decimals = 18;
     uint256 public totalSupply;
 

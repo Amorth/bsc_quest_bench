@@ -1276,9 +1276,9 @@ interface IERC1363Spender {
     function onApprovalReceived(address owner, uint256 value, bytes calldata data) external returns (bytes4);
 }
 
-contract TestERC1363Token {
-    string public name = "Test ERC1363";
-    string public symbol = "T1363";
+contract ERC1363Token {
+    string public name = "ERC1363";
+    string public symbol = "E1363";
     uint8 public decimals = 18;
     string public constant version = "1";
     uint256 public totalSupply;
@@ -1421,7 +1421,7 @@ contract TestERC1363Token {
                 
                 # 编译合约
                 compiled_sol = compile_source(contract_source, output_values=['abi', 'bin'])
-                contract_interface = compiled_sol['<stdin>:TestERC1363Token']
+                contract_interface = compiled_sol['<stdin>:ERC1363Token']
                 
                 bytecode = contract_interface['bin']
                 abi = contract_interface['abi']
@@ -1545,9 +1545,9 @@ contract TestERC1363Token {
         try:
             test_addr = to_checksum_address(self.test_address)
             
-            # Read contract source code from contracts/TestERC721NFT.sol
+            # Read contract source code from contracts/ERC721NFT.sol
             import os
-            contract_path = os.path.join(os.path.dirname(__file__), '..', 'contracts', 'TestERC721NFT.sol')
+            contract_path = os.path.join(os.path.dirname(__file__), 'contracts', 'ERC721NFT.sol')
             
             if not os.path.exists(contract_path):
                 print(f"  • ⚠️  Contract file not found: {contract_path}")
@@ -1558,9 +1558,9 @@ contract TestERC1363Token {
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.0;
 
-contract TestERC721NFT {
-    string public name = "Test NFT Collection";
-    string public symbol = "TNFT";
+contract ERC721NFT {
+    string public name = "NFT Collection";
+    string public symbol = "NFT";
     
     mapping(uint256 => address) private _owners;
     mapping(address => uint256) private _balances;
@@ -1706,7 +1706,7 @@ interface IERC721Receiver {
                 
                 # Compile contract
                 compiled_sol = compile_source(contract_source, output_values=['abi', 'bin'])
-                contract_interface = compiled_sol['<stdin>:TestERC721NFT']
+                contract_interface = compiled_sol['<stdin>:ERC721NFT']
                 
                 bytecode = contract_interface['bin']
                 abi = contract_interface['abi']

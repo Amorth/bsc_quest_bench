@@ -29,36 +29,100 @@ from typing import Dict, Any, Optional, List
 # Add project root to path
 project_root = Path(__file__).parent
 sys.path.insert(0, str(project_root))
-sys.path.insert(0, str(project_root / 'test_transactions' / 'bsc_quest_bench_test'))
 
+# Direct imports from current directory
 from bsc_quest_bench.quest_controller import QuestController
 from bsc_quest_bench.quest_env import QuestEnvironment
+from bsc_quest_bench.validators import *
+import glob
 
-# Import from test runner (need to handle test_config import)
-import importlib.util
-spec = importlib.util.spec_from_file_location(
-    "run_quest_test", 
-    project_root / "test_transactions" / "bsc_quest_bench_test" / "run_quest_test.py"
-)
-run_quest_test = importlib.util.module_from_spec(spec)
+# Helper functions to work with question bank
+def get_all_question_ids() -> List[str]:
+    """Get all question IDs from question bank"""
+    question_files = glob.glob(str(project_root / 'bsc_quest_bench' / 'question_bank' / '**' / '*.json'), recursive=True)
+    question_ids = []
+    for filepath in question_files:
+        filename = Path(filepath).stem
+        question_ids.append(filename)
+    return sorted(question_ids)
 
-# Mock test_config for imports
-class MockTestConfig:
-    MODEL_NAME = "gpt-4o"
-    FORK_URL = "https://bsc-testnet.drpc.org"
-    def get_api_key():
-        import os
-        return os.getenv('OPENAI_API_KEY')
+def get_question_path(question_id: str) -> Optional[Path]:
+    """Get path to question JSON file"""
+    question_files = glob.glob(str(project_root / 'bsc_quest_bench' / 'question_bank' / '**' / f'{question_id}.json'), recursive=True)
+    if question_files:
+        return Path(question_files[0])
+    return None
 
-sys.modules['test_config'] = MockTestConfig
+# Validator Registry - maps question_id to validator class
+VALIDATOR_REGISTRY = {
+        'bnb_transfer_basic': BNBTransferValidator,
+        'bnb_transfer_percentage': BNBTransferPercentageValidator,
+        'bnb_transfer_with_message': BNBTransferWithMessageValidator,
+        'bnb_transfer_to_contract': BNBTransferToContractValidator,
+        'bnb_transfer_max_amount': BNBTransferMaxAmountValidator,
+        'erc20_transfer_fixed': ERC20TransferValidator,
+        'erc20_transfer_percentage': ERC20TransferPercentageValidator,
+        'erc20_approve': ERC20ApproveValidator,
+        'erc20_increase_allowance': ERC20IncreaseAllowanceValidator,
+        'erc20_decrease_allowance': ERC20DecreaseAllowanceValidator,
+        'erc20_burn': ERC20BurnValidator,
+        'erc20_revoke_approval': ERC20RevokeApprovalValidator,
+        'erc20_transfer_max_amount': ERC20TransferMaxAmountValidator,
+        'erc20_transfer_with_callback_1363': ERC20TransferWithCallback1363Validator,
+        'erc20_approve_and_call_1363': ERC20ApproveAndCall1363Validator,
+        'erc20_permit': ERC20PermitValidator,
+        'erc20_flashloan': ERC20FlashLoanValidator,
+        'erc1155_transfer_single': ERC1155TransferSingleValidator,
+        'erc1155_safe_transfer_with_data': ERC1155SafeTransferWithDataValidator,
+        'erc721_transfer': ERC721TransferValidator,
+        'erc721_safe_transfer': ERC721SafeTransferValidator,
+        'erc721_approve': ERC721ApproveValidator,
+        'erc721_set_approval_for_all': ERC721SetApprovalForAllValidator,
+        'wbnb_deposit': WBNBDepositValidator,
+        'wbnb_withdraw': WBNBWithdrawValidator,
+        'contract_call_simple': ContractCallSimpleValidator,
+        'contract_call_with_value': ContractCallWithValueValidator,
+        'contract_call_with_params': ContractCallWithParamsValidator,
+        'contract_delegate_call': ContractDelegateCallValidator,
+        'contract_payable_fallback': ContractPayableFallbackValidator,
+        'swap_exact_bnb_for_tokens': SwapExactBNBForTokensValidator,
+        'swap_exact_tokens_for_bnb': SwapExactTokensForBNBValidator,
+        'swap_exact_tokens_for_tokens': SwapExactTokensForTokensValidator,
+        'swap_tokens_for_exact_tokens': SwapTokensForExactTokensValidator,
+        'swap_multihop_routing': SwapMultihopRoutingValidator,
+        'add_liquidity_bnb_token': AddLiquidityBNBTokenValidator,
+        'add_liquidity_tokens': AddLiquidityTokensValidator,
+        'remove_liquidity_tokens': RemoveLiquidityTokensValidator,
+        'remove_liquidity_bnb_token': RemoveLiquidityBNBTokenValidator,
+        'stake_single_token': StakeSingleTokenValidator,
+        'stake_lp_tokens': StakeLPTokensValidator,
+        'unstake_lp_tokens': UnstakeLPTokensValidator,
+        'harvest_rewards': HarvestRewardsValidator,
+        'emergency_withdraw': EmergencyWithdrawValidator,
+        'erc20_transferfrom_basic': ERC20TransferFromBasicValidator
+}
 
-# Now import
-spec.loader.exec_module(run_quest_test)
+def create_validator_factory(question_id: str):
+    """Create validator for a question"""
+    import inspect
+    
+    validator_class = VALIDATOR_REGISTRY.get(question_id)
+    if not validator_class:
+        raise ValueError(f"No validator found for question: {question_id}")
 
-VALIDATOR_REGISTRY = run_quest_test.VALIDATOR_REGISTRY
-get_all_question_ids = run_quest_test.get_all_question_ids
-get_question_path = run_quest_test.get_question_path
-create_validator_factory = run_quest_test.create_validator_factory
+    def factory(**params):
+        # Get the validator's __init__ signature
+        sig = inspect.signature(validator_class.__init__)
+        # Filter params to only include those accepted by __init__
+        valid_params = {}
+        for param_name, param_value in params.items():
+            if param_name in sig.parameters or any(
+                p.kind == inspect.Parameter.VAR_KEYWORD for p in sig.parameters.values()
+            ):
+                valid_params[param_name] = param_value
+        return validator_class(**valid_params)
+
+    return factory
 
 
 class TeeOutput:

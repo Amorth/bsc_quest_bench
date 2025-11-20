@@ -1,7 +1,7 @@
 """
 TypeScript Skill Manager for Quest Bench
 
-复用 bsc_gym_env 的 skill_runner
+Executes TypeScript transaction generation code
 """
 
 import json
@@ -36,14 +36,14 @@ class TypeScriptSkillManager:
         else:
             self.runtime = 'node'
         
-        # 使用 bsc_gym_env 的 skill_runner
-        project_root = Path(__file__).parent.parent.parent
-        self.runner_script = str(project_root / 'bsc_gym_env' / 'skill_runner' / 'runBscSkill.ts')
+        # 使用本地 skill_runner
+        quest_bench_root = Path(__file__).parent.parent
+        self.runner_script = str(quest_bench_root / 'skill_runner' / 'runBscSkill.ts')
         
         if not Path(self.runner_script).exists():
             raise FileNotFoundError(
                 f"Runner script not found: {self.runner_script}\n"
-                f"请确保 bsc_gym_env/skill_runner/runBscSkill.ts 存在"
+                f"Please ensure skill_runner/runBscSkill.ts exists"
             )
     
     def _find_bun_path(self) -> str:

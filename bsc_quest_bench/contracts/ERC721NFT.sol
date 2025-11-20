@@ -2,12 +2,12 @@
 pragma solidity ^0.8.0;
 
 /**
- * @title TestERC721NFT
+ * @title ERC721NFT
  * @dev Simple ERC721 implementation for testing
  */
-contract TestERC721NFT {
-    string public name = "Test NFT Collection";
-    string public symbol = "TNFT";
+contract ERC721NFT {
+    string public name = "NFT Collection";
+    string public symbol = "NFT";
     
     // Token ID to owner
     mapping(uint256 => address) private _owners;

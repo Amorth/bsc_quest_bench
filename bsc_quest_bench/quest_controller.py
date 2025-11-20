@@ -21,9 +21,9 @@ from langchain_openai import ChatOpenAI
 from langchain_anthropic import ChatAnthropic
 from langchain_google_genai import ChatGoogleGenerativeAI
 
-from .quest_env import QuestEnvironment
-from .quest_executor import QuestExecutor
-from .parameter_generator import ParameterGenerator, format_parameter_value
+from bsc_quest_bench.quest_env import QuestEnvironment
+from bsc_quest_bench.quest_executor import QuestExecutor
+from bsc_quest_bench.parameter_generator import ParameterGenerator, format_parameter_value
 
 
 class QuestController:
@@ -377,7 +377,7 @@ class QuestController:
         # 这样 Bun 能正确解析 node_modules
         timestamp = int(time.time() * 1000)
         project_root = Path(__file__).parent.parent
-        temp_dir = project_root / 'bsc_gym_env' / 'skill_runner' / 'temp'
+        temp_dir = project_root / 'bsc_quest_bench' / 'skill_runner' / 'temp'
         temp_dir.mkdir(parents=True, exist_ok=True)
         
         code_file = temp_dir / f'temp_skill_{timestamp}.ts'
