@@ -1,14 +1,14 @@
 """
 ERC1155 Safe Transfer with Data Validator
 
-验证 ERC1155 带数据参数的安全转账操作。
+Validate ERC1155 safe transfer operation with data parameter.
 """
 
 from typing import Dict, Any
 
 
 class ERC1155SafeTransferWithDataValidator:
-    """验证 ERC1155 safeTransferFrom 带数据操作"""
+    """Validate ERC1155 safeTransferFrom operation with data"""
     
     def __init__(
         self,
@@ -33,28 +33,28 @@ class ERC1155SafeTransferWithDataValidator:
         state_after: Dict[str, Any]
     ) -> Dict[str, Any]:
         """
-        验证 ERC1155 带数据转账交易
+        Validate ERC1155 transfer transaction with data
         
         Args:
-            tx: 交易对象
-            receipt: 交易收据
-            state_before: 交易前状态
-            state_after: 交易后状态
+            tx: Transaction object
+            receipt: Transaction receipt
+            state_before: State before transaction
+            state_after: State after transaction
             
         Returns:
-            验证结果字典
+            Validation result dictionary
         
-        检查项：
-        1. 交易成功执行 (30 分)
-        2. 调用了正确的 ERC1155 合约 (15 分)
-        3. 使用了 safeTransferFrom 函数 (15 分)
-        4. Data 参数非空 (10 分)
-        5. 发送者余额减少，接收者余额增加 (30 分)
+        Checks:
+        1. Transaction executed successfully (30 points)
+        2. Correct contract called: ERC1155 contract (15 points)
+        3. Used function: safeTransferFrom (15 points)
+        4. Data parameter not empty (10 points)
+        5. Sender balance decreased, receiver balance increased (30 points)
         """
         checks = []
         total_score = 0
         
-        # 1. 验证交易成功 (30 分)
+        # 1. Validate transaction success (30 points)
         tx_status = receipt.get('status', 0)
         if tx_status == 1:
             checks.append({
@@ -71,7 +71,7 @@ class ERC1155SafeTransferWithDataValidator:
                 'message': f'Transaction failed with status: {tx_status}',
                 'score': 30
             })
-            # 如果交易失败，直接返回
+            # If transaction failed, return directly
             return {
                 'passed': False,
                 'score': 0,
@@ -86,7 +86,7 @@ class ERC1155SafeTransferWithDataValidator:
                 }
             }
         
-        # 2. 验证调用了正确的 ERC1155 合约 (15 分)
+        # 2. ValidateCorrect contract called: ERC1155 contract (15 points)
         tx_to = tx.get('to', '').lower()
         if tx_to == self.nft_address:
             checks.append({
@@ -104,7 +104,7 @@ class ERC1155SafeTransferWithDataValidator:
                 'score': 15
             })
         
-        # 3. 验证使用了 safeTransferFrom 函数 (20 分)
+        # 3. Validate Used function: safeTransferFrom (20 points)
         tx_data = tx.get('data', '') or tx.get('input', '')
         
         if isinstance(tx_data, bytes):
@@ -112,7 +112,7 @@ class ERC1155SafeTransferWithDataValidator:
         if isinstance(tx_data, str) and tx_data.startswith('0x'):
             tx_data = tx_data[2:]
         
-        # safeTransferFrom(address,address,uint256,uint256,bytes) 函数选择器
+        # safeTransferFrom(address,address,uint256,uint256,bytes) function selector
         expected_selector = '0xf242432a'
         actual_selector = 'N/A'
         
@@ -150,12 +150,12 @@ class ERC1155SafeTransferWithDataValidator:
                 'score': 20
             })
         
-        # 4. 验证 data 参数非空 (10 分)
-        # safeTransferFrom 编码格式:
+        # 4. Validate data parameter not empty (10 points)
+        # safeTransferFrom encoding format:
         # selector (4 bytes) + from (32 bytes) + to (32 bytes) + id (32 bytes) + amount (32 bytes) + data offset (32 bytes) + data length + data
-        # 如果 data 非空，交易数据应该长于 4 + 32*5 = 164 字节 (82 hex chars)
+        # If data is not empty, transaction data should be longer than 4 + 32*5 = 164 bytes (82 hex chars)
         data_check_passed = False
-        if len(tx_data) > 200:  # 给一些余量，如果有数据应该明显更长
+        if len(tx_data) > 200:  # Allow margin, should be significantly longer if data exists
             data_check_passed = True
             checks.append({
                 'name': 'Data Parameter',
@@ -180,7 +180,7 @@ class ERC1155SafeTransferWithDataValidator:
                 }
             })
         
-        # 5. 验证余额变化 (30 分)
+        # 5. Validate balance change (30 points)
         sender_balance_before = state_before.get('erc1155_balance', 0)
         sender_balance_after = state_after.get('erc1155_balance', 0)
         recipient_balance_before = state_before.get('target_erc1155_balance', 0)
@@ -228,7 +228,7 @@ class ERC1155SafeTransferWithDataValidator:
                 }
             })
         
-        # 汇总结果
+        # Aggregate results
         all_passed = all(check['passed'] for check in checks)
         
         return {

@@ -1,8 +1,8 @@
 """
-BSC Quest Bench - 单轮交易生成评估系统
+BSC Quest Bench - Single Round Transaction Generation Evaluation System
 
-这是一个基于原子问题的单轮交易生成评估系统。
-系统通过自然语言指令生成交易代码,执行后进行链上验证和评分。
+This is a single round transaction generation evaluation system based on atomic problems.
+The system generates transaction code via natural language instructions, executes it, and performs on-chain verification and scoring.
 """
 
 __version__ = "0.1.0"

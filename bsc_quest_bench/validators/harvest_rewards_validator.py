@@ -1,9 +1,9 @@
 """
 Validator for harvest_rewards operation
 
-验证收获奖励操作:
-1. 交易成功 (30%)
-2. 奖励代币余额增加 (70%)
+Validate harvest rewards operation:
+1. Transaction success (30%)
+2. Reward token balance increase (70%)
 """
 
 from typing import Dict, Any, List

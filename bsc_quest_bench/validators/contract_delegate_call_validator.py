@@ -6,7 +6,7 @@ from typing import Dict, Any
 
 
 class ContractDelegateCallValidator:
-    """验证 delegatecall 代理调用"""
+    """Validate delegatecall proxy call"""
     
     def __init__(self, proxy_address: str, implementation_address: str, value: float):
         """
@@ -24,13 +24,13 @@ class ContractDelegateCallValidator:
     
     def validate(self, tx: Dict[str, Any], receipt: Dict[str, Any], state_before: Dict[str, Any], state_after: Dict[str, Any]) -> Dict[str, Any]:
         """
-        验证 delegatecall 交易
+        Validate delegatecall transaction
         
         Args:
-            tx: 交易对象
-            receipt: 交易收据
-            state_before: 交易前状态
-            state_after: 交易后状态
+            tx: Transaction object
+            receipt: Transaction receipt
+            state_before: State before transaction
+            state_after: State after transaction
         
         Returns:
             Validation results including score and details
@@ -39,7 +39,7 @@ class ContractDelegateCallValidator:
         score = 0
         details = {}
         
-        # 1. 验证交易成功 (30分)
+        # 1. Validate transaction success (30 points)
         tx_success = receipt.get('status') == 1
         
         if tx_success:
@@ -65,7 +65,7 @@ class ContractDelegateCallValidator:
                 'details': details
             }
         
-        # 2. 验证调用的是代理合约 (20分)
+        # 2. Validate called proxy contract (20 points)
         actual_to = tx.get('to', '').lower()
         contract_correct = actual_to == self.expected_proxy
         
@@ -88,7 +88,7 @@ class ContractDelegateCallValidator:
         details['expected_proxy'] = self.expected_proxy
         details['actual_to'] = actual_to
         
-        # 3. 验证函数选择器 setValue(uint256) = 0x55241077 (20分)
+        # 3. Validatefunction selector setValue(uint256) = 0x55241077 (20 points)
         tx_data = tx.get('data', '0x')
         
         if tx_data and len(tx_data) >= 10:  # 0x + 8 hex chars (4 bytes)
@@ -121,7 +121,7 @@ class ContractDelegateCallValidator:
             })
             details['function_selector'] = 'N/A'
         
-        # 4. 验证代理合约的存储值已更新 (15分)
+        # 4. Validate proxy contract storage updated (15 points)
         proxy_value_before = state_before.get('proxy_value', 0)
         proxy_value_after = state_after.get('proxy_value', 0)
         
@@ -147,7 +147,7 @@ class ContractDelegateCallValidator:
         details['proxy_value_after'] = proxy_value_after
         details['expected_value'] = self.expected_value
         
-        # 5. 验证实现合约的存储值未改变 (15分)
+        # 5. Validate implementation contract storage unchanged (15 points)
         impl_value_before = state_before.get('implementation_value', 0)
         impl_value_after = state_after.get('implementation_value', 0)
         

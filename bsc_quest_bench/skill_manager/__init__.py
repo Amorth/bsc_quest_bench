@@ -1,5 +1,5 @@
 """
-Skill Manager - TypeScript 代码执行管理
+Skill Manager - TypeScript Code Execution Management
 """
 
 from .ts_skill_manager import TypeScriptSkillManager

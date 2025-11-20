@@ -2,16 +2,16 @@
 Run BSC Quest Bench with a specific LLM model
 
 Usage:
-    # 运行所有原子问题测试
+    # Run all atomic problem tests
     python run_quest_bench.py --model gpt-4o --type atomic
     
-    # 运行组合问题测试（TODO）
+    # Run composite problem tests (TODO)
     python run_quest_bench.py --model claude-3-sonnet --type composite
     
-    # 运行特定问题
+    # Run specific problems
     python run_quest_bench.py --model gemini-pro --questions bnb_transfer_basic swap_exact_bnb_for_tokens
     
-    # 指定问题数量
+    # Specify number of questions
     python run_quest_bench.py --model gpt-4o --max-questions 10
 
 All tests run in Anvil Fork Mode with complete environment isolation.
@@ -126,7 +126,7 @@ def create_validator_factory(question_id: str):
 
 
 class TeeOutput:
-    """同时输出到控制台和文件"""
+    """Output to console and file simultaneously"""
     def __init__(self, file, terminal):
         self.file = file
         self.terminal = terminal
@@ -143,7 +143,7 @@ class TeeOutput:
 
 
 class QuestBenchRunner:
-    """Quest Bench 评估运行器"""
+    """Quest Bench Evaluation Runner"""
     
     def __init__(self, model_name: str, api_key: Optional[str] = None, 
                  base_url: Optional[str] = None, fork_url: str = "https://bsc-testnet.drpc.org",
@@ -173,7 +173,7 @@ class QuestBenchRunner:
         }
     
     async def run_atomic_tests(self, question_ids: List[str], max_questions: Optional[int] = None):
-        """运行原子问题测试"""
+        """Run atomic problem tests"""
         
         print("\n" + "="*80)
         print("🧪 BSC QUEST BENCH - Atomic Problem Evaluation")
@@ -236,7 +236,7 @@ class QuestBenchRunner:
         return self.results
     
     async def _run_single_question(self, question_id: str, env: QuestEnvironment) -> Dict[str, Any]:
-        """运行单个问题测试"""
+        """Run single problem test"""
         
         # Find question file
         question_path = get_question_path(question_id)
@@ -331,7 +331,7 @@ class QuestBenchRunner:
             }
     
     def save_results(self, output_dir: str = "results") -> str:
-        """保存评估结果"""
+        """Save evaluation results"""
         output_path = Path(output_dir)
         output_path.mkdir(parents=True, exist_ok=True)
         
@@ -346,7 +346,7 @@ class QuestBenchRunner:
         return str(filepath)
     
     def print_summary(self):
-        """打印评估摘要"""
+        """Print evaluation summary"""
         print("\n" + "="*80)
         print("📊 FINAL RESULTS")
         print("="*80)
@@ -531,7 +531,7 @@ Examples:
         
         # Final summary (console only)
         print(f"\n{'='*80}")
-        print(f"✅ Quest Bench 完成")
+        print(f"✅ Quest Bench Completed")
         print(f"{'='*80}")
         print(f"📁 Log saved to: {log_filepath}")
         if output_file:
@@ -541,4 +541,3 @@ Examples:
 
 if __name__ == "__main__":
     asyncio.run(main())
-

@@ -1,11 +1,11 @@
 """
 Validator for stake_lp_tokens operation
 
-验证 LP 代币质押操作:
-1. 交易成功 (25%)
-2. LP Token 授权 (20%)
-3. LP Token 余额减少 (25%)
-4. 质押余额增加 (30%)
+Validate LP token staking operation:
+1. Transaction success (25%)
+2. LP Token approval (20%)
+3. LP Token balance decrease (25%)
+4. Staked balance increase (30%)
 """
 
 from typing import Dict, Any, List

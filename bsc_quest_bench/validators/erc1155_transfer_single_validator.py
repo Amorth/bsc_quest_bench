@@ -1,14 +1,14 @@
 """
 ERC1155 Transfer Single Validator
 
-验证 ERC1155 单个代币 ID 的转账操作。
+Validate ERC1155 single token ID transfer operation.
 """
 
 from typing import Dict, Any
 
 
 class ERC1155TransferSingleValidator:
-    """验证 ERC1155 safeTransferFrom 操作"""
+    """Validate ERC1155 safeTransferFrom operation"""
     
     def __init__(
         self,
@@ -31,27 +31,27 @@ class ERC1155TransferSingleValidator:
         state_after: Dict[str, Any]
     ) -> Dict[str, Any]:
         """
-        验证 ERC1155 转账交易
+        Validate ERC1155 transfer transaction
         
         Args:
-            tx: 交易对象
-            receipt: 交易收据
-            state_before: 交易前状态
-            state_after: 交易后状态
+            tx: Transaction object
+            receipt: Transaction receipt
+            state_before: State before transaction
+            state_after: State after transaction
             
         Returns:
-            验证结果字典
+            Validation result dictionary
         
-        检查项：
-        1. 交易成功执行 (30%)
-        2. 调用了正确的 ERC1155 合约 (20%)
-        3. 使用了 safeTransferFrom 函数 (20%)
-        4. 发送者余额减少，接收者余额增加 (30%)
+        Checks:
+        1. Transaction executed successfully (30%)
+        2. Correct contract called: ERC1155 contract (20%)
+        3. Used function: safeTransferFrom (20%)
+        4. Sender balance decreased, receiver balance increased (30%)
         """
         checks = []
         total_score = 0
         
-        # 1. 验证交易成功 (30 分)
+        # 1. Validate transaction success (30 points)
         tx_status = receipt.get('status', 0)
         if tx_status == 1:
             checks.append({
@@ -68,7 +68,7 @@ class ERC1155TransferSingleValidator:
                 'message': f'Transaction failed with status: {tx_status}',
                 'score': 30
             })
-            # 如果交易失败，直接返回
+            # If transaction failed, return directly
             return {
                 'passed': False,
                 'score': 0,
@@ -83,7 +83,7 @@ class ERC1155TransferSingleValidator:
                 }
             }
         
-        # 2. 验证调用了正确的 ERC1155 合约 (20 分)
+        # 2. ValidateCorrect contract called: ERC1155 contract (20 points)
         tx_to = tx.get('to', '').lower()
         if tx_to == self.nft_address:
             checks.append({
@@ -101,7 +101,7 @@ class ERC1155TransferSingleValidator:
                 'score': 20
             })
         
-        # 3. 验证使用了 safeTransferFrom 函数 (20 分)
+        # 3. Validate Used function: safeTransferFrom (20 points)
         tx_data = tx.get('data', '') or tx.get('input', '')
         
         if isinstance(tx_data, bytes):
@@ -109,7 +109,7 @@ class ERC1155TransferSingleValidator:
         if isinstance(tx_data, str) and tx_data.startswith('0x'):
             tx_data = tx_data[2:]
         
-        # safeTransferFrom(address,address,uint256,uint256,bytes) 函数选择器
+        # safeTransferFrom(address,address,uint256,uint256,bytes) function selector
         expected_selector = '0xf242432a'
         actual_selector = 'N/A'
         
@@ -147,7 +147,7 @@ class ERC1155TransferSingleValidator:
                 'score': 20
             })
         
-        # 4. 验证余额变化 (30 分)
+        # 4. Validate balance change (30 points)
         sender_balance_before = state_before.get('erc1155_balance', 0)
         sender_balance_after = state_after.get('erc1155_balance', 0)
         recipient_balance_before = state_before.get('target_erc1155_balance', 0)
@@ -195,7 +195,7 @@ class ERC1155TransferSingleValidator:
                 }
             })
         
-        # 汇总结果
+        # Aggregate results
         all_passed = all(check['passed'] for check in checks)
         
         return {

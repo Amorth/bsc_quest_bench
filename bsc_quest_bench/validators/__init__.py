@@ -1,7 +1,7 @@
 """
-验证器模块
+Validator Module
 
-包含各种原子问题的验证器
+Contains validators for various atomic problems
 """
 
 from .bnb_transfer_validator import BNBTransferValidator

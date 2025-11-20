@@ -1,14 +1,14 @@
 """
 ERC20 FlashLoan Validator
 
-验证闪电贷操作。
+Validate flashloan operation.
 """
 
 from typing import Dict, Any
 
 
 class ERC20FlashLoanValidator:
-    """验证 ERC20 闪电贷操作"""
+    """Validate ERC20 flashloan operation"""
     
     def __init__(
         self,
@@ -24,7 +24,7 @@ class ERC20FlashLoanValidator:
         self.token_decimals = token_decimals
         self.fee_percentage = fee_percentage
         
-        # 计算费用（单位：token smallest unit）
+        # Calculate fee (unit: token smallest unit)
         amount_smallest = int(amount * (10 ** token_decimals))
         self.expected_fee = int(amount_smallest * fee_percentage / 100)
         
@@ -38,27 +38,27 @@ class ERC20FlashLoanValidator:
         state_after: Dict[str, Any]
     ) -> Dict[str, Any]:
         """
-        验证闪电贷交易
+        Validate flashloan transaction
         
         Args:
-            tx: 交易对象
-            receipt: 交易收据
-            state_before: 交易前状态
-            state_after: 交易后状态
+            tx: Transaction object
+            receipt: Transaction receipt
+            state_before: State before transaction
+            state_after: State after transaction
             
         Returns:
-            验证结果字典
+            Validation result dictionary
         
-        检查项：
-        1. 交易成功执行 (30%)
-        2. 调用了正确的闪电贷合约 (20%)
-        3. 使用了 executeFlashLoan 函数 (20%)
-        4. 支付了正确的费用 (30%)
+        Checks:
+        1. Transaction executed successfully (30%)
+        2. Correct contract called: Flashloan contract (20%)
+        3. Used function: executeFlashLoan function (20%)
+        4. Paid correct fee (30%)
         """
         checks = []
         total_score = 0
         
-        # 1. 验证交易成功 (30 分)
+        # 1. Validate transaction success (30 points)
         tx_status = receipt.get('status', 0)
         if tx_status == 1:
             checks.append({
@@ -75,7 +75,7 @@ class ERC20FlashLoanValidator:
                 'message': f'Transaction failed with status: {tx_status}',
                 'score': 30
             })
-            # 如果交易失败，直接返回
+            # If transaction failed, return directly
             return {
                 'passed': False,
                 'score': 0,
@@ -90,7 +90,7 @@ class ERC20FlashLoanValidator:
                 }
             }
         
-        # 2. 验证调用了正确的闪电贷合约 (20 分)
+        # 2. ValidateCorrect contract called: Flashloan contract (20 points)
         tx_to = tx.get('to', '').lower()
         if tx_to == self.flashloan_contract:
             checks.append({
@@ -108,7 +108,7 @@ class ERC20FlashLoanValidator:
                 'score': 20
             })
         
-        # 3. 验证使用了 executeFlashLoan 函数 (20 分)
+        # 3. ValidateUsed function: executeFlashLoan function (20 points)
         tx_data = tx.get('data', '') or tx.get('input', '')
         
         if isinstance(tx_data, bytes):
@@ -116,8 +116,8 @@ class ERC20FlashLoanValidator:
         if isinstance(tx_data, str) and tx_data.startswith('0x'):
             tx_data = tx_data[2:]
         
-        # executeFlashLoan(address,uint256) 函数选择器
-        # keccak256("executeFlashLoan(address,uint256)") 的前 4 字节
+        # executeFlashLoan(address,uint256) function selector
+        # First 4 bytes of keccak256("executeFlashLoan(address,uint256)")
         expected_selector = '0x6065c245'
         actual_selector = 'N/A'
         
@@ -155,14 +155,14 @@ class ERC20FlashLoanValidator:
                 'score': 20
             })
         
-        # 4. 验证费用支付 (30 分)
-        # 闪电贷会导致用户余额减少费用金额
+        # 4. Validate fee payment (30 points)
+        # Flashloan causes user balance to decrease by fee amount
         balance_before = state_before.get('token_balance', 0)
         balance_after = state_after.get('token_balance', 0)
         
         balance_decrease = balance_before - balance_after
         
-        # 允许一些误差（由于精度问题）
+        # Allow some error (due to precision issues)
         fee_tolerance = max(1, self.expected_fee // 100)  # 1% tolerance
         
         fee_check_passed = abs(balance_decrease - self.expected_fee) <= fee_tolerance
@@ -197,7 +197,7 @@ class ERC20FlashLoanValidator:
                 }
             })
         
-        # 汇总结果
+        # Aggregate results
         all_passed = all(check['passed'] for check in checks)
         
         return {

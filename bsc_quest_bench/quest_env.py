@@ -1,10 +1,10 @@
 """
-BSC Quest Environment - 环境层
+BSC Quest Environment - Environment Layer
 
-负责:
-1. 初始化本地 Anvil 节点 (fork from BSC testnet)
-2. 创建测试账户并设置初始余额
-3. 提供 Web3 连接和链上状态查询
+Responsibilities:
+1. Initialize local Anvil node (fork from BSC testnet)
+2. Create test account and set initial balance
+3. Provide Web3 connection and on-chain state query
 """
 
 import subprocess
@@ -17,7 +17,7 @@ from eth_account import Account
 
 
 class QuestEnvironment:
-    """Quest环境管理类"""
+    """Quest Environment Management Class"""
     
     def __init__(
         self,
@@ -26,20 +26,20 @@ class QuestEnvironment:
         anvil_port: int = 8545
     ):
         """
-        初始化Quest环境
+        Initialize Quest environment
         
         Args:
-            fork_url: BSC RPC URL (默认使用免费testnet RPC)
-                     - None: 使用默认免费 testnet RPC (适合开源/CI)
-                     - 自定义URL: 使用付费或私有 RPC (适合开发/生产)
-                     建议通过环境变量或配置文件传入
-            chain_id: 链ID (56=BSC Mainnet, 97=BSC Testnet, 默认56)
-            anvil_port: Anvil端口
+            fork_url: BSC RPC URL (default use free testnet RPC)
+                     - None: Use default free testnet RPC (suitable for open source/CI)
+                     - Custom URL: Use paid or private RPC (suitable for dev/prod)
+                     Recommended to pass via environment variable or config file
+            chain_id: Chain ID (56=BSC Mainnet, 97=BSC Testnet, default 56)
+            anvil_port: Anvil port
         """
-        # Fork URL 优先级:
-        # 1. 传入的 fork_url 参数
-        # 2. 环境变量 BSC_FORK_URL
-        # 3. 默认免费 testnet RPC
+        # Fork URL Priority:
+        # 1. Passed fork_url parameter
+        # 2. Environment variable BSC_FORK_URL
+        # 3. Default free testnet RPC
         if fork_url is None:
             import os
             fork_url = os.getenv('BSC_FORK_URL', 'https://bsc-testnet.drpc.org')
@@ -58,86 +58,86 @@ class QuestEnvironment:
         
     def start(self) -> Dict[str, Any]:
         """
-        启动环境
+        Start environment
         
         Returns:
-            环境信息字典
+            Environment info dictionary
         """
-        # 1. 启动 Anvil fork
+        # 1. Start Anvil fork
         self._start_anvil_fork()
         
-        # 2. 连接 Web3
+        # 2. Connect Web3
         anvil_rpc = f"http://127.0.0.1:{self.anvil_port}"
         
-        # 创建一个绕过代理的 HTTPProvider（本地连接不应该走代理）
+        # Create an HTTPProvider bypassing proxy (local connection should not go through proxy)
         import requests
         session = requests.Session()
         session.proxies = {
             'http': None,
             'https': None,
         }
-        session.trust_env = False  # 不使用环境变量中的代理设置
+        session.trust_env = False  # Do not use proxy settings from environment variables
         
         from web3.providers.rpc import HTTPProvider
         provider = HTTPProvider(anvil_rpc, session=session)
         self.w3 = Web3(provider)
         
-        # 2.1 注入 POA middleware (BSC 是 POA 链)
+        # 2.1 Inject POA middleware (BSC is a POA chain)
         try:
-            # Web3.py 7.x 使用 ExtraDataToPOAMiddleware
+            # Web3.py 7.x uses ExtraDataToPOAMiddleware
             from web3.middleware import ExtraDataToPOAMiddleware
             self.w3.middleware_onion.inject(ExtraDataToPOAMiddleware, layer=0)
         except ImportError:
             try:
-                # Web3.py v6+ 使用 geth_poa_middleware（旧路径）
+                # Web3.py v6+ uses geth_poa_middleware (old path)
                 from web3.middleware.geth_poa import geth_poa_middleware
                 self.w3.middleware_onion.inject(geth_poa_middleware, layer=0)
             except ImportError:
                 try:
-                    # Web3.py v5 使用 geth_poa_middleware（更旧的路径）
+                    # Web3.py v5 uses geth_poa_middleware (older path)
                     from web3.middleware import geth_poa_middleware
                     self.w3.middleware_onion.inject(geth_poa_middleware, layer=0)
                 except ImportError:
-                    # 如果都不存在，Anvil 本地 fork 通常不需要（我们使用直接 RPC 调用绕过）
+                    # If none exist, Anvil local fork usually doesn't need it (we use direct RPC calls to bypass)
                     print("⚠️  Warning: Could not import POA middleware, continuing without it")
         
         if not self.w3.is_connected():
-            raise ConnectionError(f"无法连接到 Anvil: {anvil_rpc}")
+            raise ConnectionError(f"Cannot connect to Anvil: {anvil_rpc}")
         
-        print(f"✓ Anvil 连接成功")
+        print(f"✓ Anvil connected successfully")
         print(f"  Chain ID: {self.w3.eth.chain_id}")
         print(f"  Anvil RPC: {anvil_rpc}")
         print(f"  Fork: {self.fork_url}")
         
-        # 3. 创建测试账户
+        # 3. Create test account
         self.test_account = Account.create()
         self.test_address = self.test_account.address
         self.test_private_key = self.test_account.key.hex()
         
-        print(f"✓ 测试账户创建成功")
+        print(f"✓ Test account created successfully")
         print(f"  Address: {self.test_address}")
         
-        # 4. 设置初始余额 (100 BNB - 足够多次测试使用)
+        # 4. Set initial balance (100 BNB - enough for multiple tests)
         self._set_balance(self.test_address, 100 * 10**18)
         
         balance = self.w3.eth.get_balance(self.test_address) / 10**18
         print(f"  Balance: {balance} BNB")
         
-        # 5. 预热常用合约地址 (触发 Anvil 拉取合约代码)
+        # 5. Preheat common contract addresses (trigger Anvil to pull contract code)
         self._preheat_contracts()
         
-        # 6. 设置测试账户的 ERC20 token 余额
+        # 6. Set ERC20 token balances for test account
         self._set_token_balances()
         
-        # 7. 设置富有账户用于 transferFrom 测试
+        # 7. Setup rich account for transferFrom tests
         self._setup_rich_account()
         
-        # 8. 创建初始快照用于快速重置
+        # 8. Create initial snapshot for fast reset
         try:
             self.initial_snapshot_id = self.w3.provider.make_request("evm_snapshot", [])['result']
-            print(f"✓ 初始快照已创建: {self.initial_snapshot_id}")
+            print(f"✓ Initial snapshot created: {self.initial_snapshot_id}")
         except Exception as e:
-            print(f"⚠️  创建初始快照失败: {e}")
+            print(f"⚠️  Failed to create initial snapshot: {e}")
             self.initial_snapshot_id = None
         
         return {
@@ -165,47 +165,47 @@ class QuestEnvironment:
     
     def create_snapshot(self) -> str:
         """
-        创建当前状态的快照
+        Create snapshot of current state
         
         Returns:
-            快照ID
+            Snapshot ID
         """
         if not self.w3:
-            raise RuntimeError("环境未启动，无法创建快照")
+            raise RuntimeError("Environment not started, cannot create snapshot")
         
         snapshot_id = self.w3.provider.make_request("evm_snapshot", [])
-        print(f"✓ 创建快照: {snapshot_id}")
+        print(f"✓ Snapshot created: {snapshot_id}")
         return snapshot_id
     
     def revert_to_snapshot(self, snapshot_id: str) -> bool:
         """
-        恢复到指定快照
+        Revert to specified snapshot
         
         Args:
-            snapshot_id: 快照ID
+            snapshot_id: Snapshot ID
             
         Returns:
-            是否成功恢复
+            Whether revert was successful
         """
         if not self.w3:
-            raise RuntimeError("环境未启动，无法恢复快照")
+            raise RuntimeError("Environment not started, cannot revert snapshot")
         
         result = self.w3.provider.make_request("evm_revert", [snapshot_id])
         if result:
-            print(f"✓ 已恢复到快照: {snapshot_id}")
+            print(f"✓ Reverted to snapshot: {snapshot_id}")
         else:
-            print(f"⚠️  恢复快照失败: {snapshot_id}")
+            print(f"⚠️  Failed to revert snapshot: {snapshot_id}")
         return result
     
     def reset_account_balance(self):
         """
-        重置测试账户余额
-        用于在每个测试前确保账户有足够的 BNB
+        Reset test account balance
+        Ensures account has enough BNB before each test
         """
         if not self.w3 or not self.test_address:
-            raise RuntimeError("环境未启动，无法重置余额")
+            raise RuntimeError("Environment not started, cannot reset balance")
         
-        # 设置初始 BNB 余额（100 BNB）
+        # Set initial BNB balance (100 BNB)
         initial_balance = 100 * 10**18
         
         try:
@@ -213,59 +213,59 @@ class QuestEnvironment:
                 'anvil_setBalance',
                 [self.test_address, hex(initial_balance)]
             )
-            print(f"✓ 已重置账户余额: {self.test_address} -> 100 BNB")
+            print(f"✓ Account balance reset: {self.test_address} -> 100 BNB")
             return True
         except Exception as e:
-            print(f"⚠️  重置余额失败: {e}")
+            print(f"⚠️  Failed to reset balance: {e}")
             return False
     
     def reset(self):
         """
-        快速重置环境状态（使用快照恢复，保持 Anvil 进程运行）
-        恢复到初始快照状态，比完全重置快得多
+        Fast reset environment state (use snapshot revert, keep Anvil process running)
+        Reverts to initial snapshot state, much faster than full reset
         """
         if not self.w3 or not self.test_address:
-            raise RuntimeError("环境未启动，无法重置")
+            raise RuntimeError("Environment not started, cannot reset")
         
         if not self.initial_snapshot_id:
-            print("⚠️  警告：没有初始快照，无法快速重置")
+            print("⚠️  Warning: No initial snapshot, cannot fast reset")
             return False
         
-        print("🔄 快速重置环境状态（恢复快照）...")
+        print("🔄 Fast resetting environment state (reverting snapshot)...")
         
         try:
-            # 1. 恢复到初始快照
+            # 1. Revert to initial snapshot
             result = self.w3.provider.make_request("evm_revert", [self.initial_snapshot_id])
             if not result.get('result', False):
-                print(f"  ⚠️  快照恢复失败")
+                print(f"  ⚠️  Snapshot revert failed")
                 return False
             
-            print(f"  ✓ 已恢复到初始快照: {self.initial_snapshot_id}")
+            print(f"  ✓ Reverted to initial snapshot: {self.initial_snapshot_id}")
             
-            # 2. 重新创建快照（某些 Anvil 版本会在 revert 时消耗快照）
+            # 2. Recreate snapshot (some Anvil versions consume snapshot on revert)
             self.initial_snapshot_id = self.w3.provider.make_request("evm_snapshot", [])['result']
-            print(f"  ✓ 已重新创建快照: {self.initial_snapshot_id}")
+            print(f"  ✓ Recreated snapshot: {self.initial_snapshot_id}")
             
-            # 验证余额
+            # Verify balance
             balance = self.w3.eth.get_balance(self.test_address) / 10**18
-            print(f"  ✓ 账户余额: {balance} BNB")
+            print(f"  ✓ Account balance: {balance} BNB")
             
-            print("✅ 环境快速重置完成\n")
+            print("✅ Environment fast reset completed\n")
             return True
             
         except Exception as e:
-            print(f"  ❌ 快照恢复失败: {e}")
-            print("  ⚠️  将尝试完全重置...")
+            print(f"  ❌ Snapshot revert failed: {e}")
+            print("  ⚠️  Will attempt full reset...")
             
-            # 如果快照失败，回退到完全重置
+            # If snapshot fails, fallback to full reset
             return self._full_reset()
     
     def _full_reset(self):
         """
-        完全重置环境（备用方案，当快照失败时使用）
-        使用 anvil_reset 重置到 fork point 并重新部署所有合约
+        Full reset environment (fallback, used when snapshot fails)
+        Uses anvil_reset to reset to fork point and redeploys all contracts
         """
-        print("🔄 执行完全重置...")
+        print("🔄 Performing full reset...")
         
         try:
             # 1. Reset blockchain state to initial fork point
@@ -274,16 +274,16 @@ class QuestEnvironment:
                     'jsonRpcUrl': self.fork_url
                 }
             }])
-            print("  ✓ 区块链状态已重置到 fork point")
+            print("  ✓ Blockchain state reset to fork point")
         except Exception as e:
-            print(f"  ❌ 区块链重置失败: {e}")
+            print(f"  ❌ Blockchain reset failed: {e}")
             return False
         
         try:
             # 2. Reset account balance
             self._set_balance(self.test_address, 100 * 10**18)
             balance = self.w3.eth.get_balance(self.test_address) / 10**18
-            print(f"  ✓ 账户余额已重置: {balance} BNB")
+            print(f"  ✓ Account balance reset: {balance} BNB")
             
             # 3. Re-setup token balances and contracts
             self._set_token_balances()
@@ -293,47 +293,47 @@ class QuestEnvironment:
             
             # 5. Recreate initial snapshot
             self.initial_snapshot_id = self.w3.provider.make_request("evm_snapshot", [])['result']
-            print(f"  ✓ 已重新创建初始快照: {self.initial_snapshot_id}")
+            print(f"  ✓ Recreated initial snapshot: {self.initial_snapshot_id}")
             
-            print("✅ 完全重置完成\n")
+            print("✅ Full reset completed\n")
             return True
             
         except Exception as e:
-            print(f"  ❌ 完全重置失败: {e}")
+            print(f"  ❌ Full reset failed: {e}")
             return False
     
     def stop(self):
-        """停止环境"""
+        """Stop environment"""
         self._cleanup_anvil()
-        print("✓ 环境已清理")
+        print("✓ Environment cleaned up")
     
     def _start_anvil_fork(self):
-        """启动 Anvil fork 进程"""
-        # 1. 清理可能存在的僵尸 Anvil 进程
+        """Start Anvil fork process"""
+        # 1. Clean up potential zombie Anvil processes
         self._kill_zombie_anvil()
         
-        # 2. 检查端口是否被占用
+        # 2. Check if port is in use
         if self._is_port_in_use(self.anvil_port):
-            print(f"⚠️  端口 {self.anvil_port} 已被占用")
-            print(f"   尝试清理并重试...")
+            print(f"⚠️  Port {self.anvil_port} is already in use")
+            print(f"   Attempting to cleanup and retry...")
             self._kill_zombie_anvil()
             time.sleep(2)
             
             if self._is_port_in_use(self.anvil_port):
                 raise RuntimeError(
-                    f"端口 {self.anvil_port} 仍被占用，无法启动 Anvil\n"
-                    f"请手动清理:\n"
+                    f"Port {self.anvil_port} is still in use, cannot start Anvil\n"
+                    f"Please clean up manually:\n"
                     f"  Linux/Mac: lsof -ti:{self.anvil_port} | xargs kill -9\n"
                     f"  Windows: netstat -ano | findstr :{self.anvil_port}"
                 )
         
-        # 3. 测试网络连接到 Fork URL
-        print(f"🔍 测试连接到 Fork URL...")
+        # 3. Test network connection to Fork URL
+        print(f"🔍 Testing connection to Fork URL...")
         if not self._test_fork_url():
-            print(f"⚠️  警告: 无法快速连接到 Fork URL")
-            print(f"   继续尝试启动，但可能会较慢...")
+            print(f"⚠️  Warning: Cannot connect to Fork URL quickly")
+            print(f"   Continuing to start, but might be slow...")
         
-        # 4. 查找 anvil 命令
+        # 4. Find anvil command
         anvil_paths = [
             os.path.expanduser('~/.foundry/bin/anvil'),
             '/usr/local/bin/anvil',
@@ -350,20 +350,20 @@ class QuestEnvironment:
                     timeout=5
                 )
                 self.anvil_cmd = path
-                print(f"✓ 找到 Anvil: {path}")
+                print(f"✓ Found Anvil: {path}")
                 break
             except (subprocess.CalledProcessError, FileNotFoundError, subprocess.TimeoutExpired):
                 continue
         
         if not self.anvil_cmd:
             raise RuntimeError(
-                "未找到 Anvil! 请安装 Foundry:\n"
+                "Anvil not found! Please install Foundry:\n"
                 "  curl -L https://foundry.paradigm.xyz | bash\n"
                 "  foundryup"
             )
         
-        # 5. 启动 Anvil
-        print(f"🔨 启动 Anvil fork...")
+        # 5. Start Anvil
+        print(f"🔨 Starting Anvil fork...")
         print(f"   Fork URL: {self.fork_url}")
         print(f"   Port: {self.anvil_port}")
         
@@ -372,89 +372,89 @@ class QuestEnvironment:
             '--fork-url', self.fork_url,
             '--port', str(self.anvil_port),
             '--host', '127.0.0.1',
-            '--no-storage-caching',  # 禁用存储缓存，强制从远程拉取
-            '--compute-units-per-second', '1000',  # 提高请求限制
+            '--no-storage-caching',  # Disable storage caching, force pull from remote
+            '--compute-units-per-second', '1000',  # Increase request limit
         ]
         
-        # 捕获 stderr 用于诊断
+        # Capture stderr for diagnostics
         self.anvil_process = subprocess.Popen(
             anvil_cmd_list,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE
         )
         
-        # 6. 等待启动（增加超时时间）
-        max_wait = 30  # 从 15s 增加到 30s
-        print(f"   等待 Anvil 启动 (最多 {max_wait}s)...")
+        # 6. Wait for start (increase timeout)
+        max_wait = 30  # Increased from 15s to 30s
+        print(f"   Waiting for Anvil to start (max {max_wait}s)...")
         
         for i in range(max_wait):
             time.sleep(1)
             
-            # 检查端口是否打开
+            # Check if port is open
             if self._is_port_in_use(self.anvil_port):
-                print(f"✓ Anvil 启动成功 ({i+1}s)")
+                print(f"✓ Anvil started successfully ({i+1}s)")
                 return
             
-            # 检查进程是否意外退出
+            # Check if process exited unexpectedly
             if self.anvil_process.poll() is not None:
                 returncode = self.anvil_process.returncode
-                # 尝试读取错误输出
+                # Try to read error output
                 try:
                     stdout, stderr = self.anvil_process.communicate(timeout=1)
-                    error_msg = stderr.decode('utf-8', errors='ignore') if stderr else "无错误信息"
+                    error_msg = stderr.decode('utf-8', errors='ignore') if stderr else "No error message"
                 except:
-                    error_msg = "无法读取错误信息"
+                    error_msg = "Cannot read error message"
                 
                 self._cleanup_anvil()
                 raise RuntimeError(
-                    f"Anvil 进程意外退出 (code {returncode})\n"
-                    f"错误信息: {error_msg[:500]}\n"
-                    f"可能原因:\n"
-                    f"  - Fork URL 无效或不可达: {self.fork_url}\n"
-                    f"  - 网络连接问题\n"
-                    f"  - RPC 节点限流或故障"
+                    f"Anvil process exited unexpectedly (code {returncode})\n"
+                    f"Error message: {error_msg[:500]}\n"
+                    f"Possible causes:\n"
+                    f"  - Fork URL invalid or unreachable: {self.fork_url}\n"
+                    f"  - Network connection issues\n"
+                    f"  - RPC node rate limited or down"
                 )
             
-            # 每 5 秒显示进度
+            # Show progress every 5 seconds
             if (i + 1) % 5 == 0:
-                print(f"   等待中... ({i+1}s)")
+                print(f"   Waiting... ({i+1}s)")
         
-        # 超时处理
+        # Timeout handling
         self._cleanup_anvil()
         raise RuntimeError(
-            f"Anvil 启动超时 ({max_wait}s)\n"
-            f"可能原因:\n"
-            f"  1. 网络连接慢 - Fork URL: {self.fork_url}\n"
-            f"  2. RPC 节点响应慢或不可用\n"
-            f"  3. 系统资源不足\n"
+            f"Anvil start timed out ({max_wait}s)\n"
+            f"Possible causes:\n"
+            f"  1. Slow network connection - Fork URL: {self.fork_url}\n"
+            f"  2. RPC node slow response or unavailable\n"
+            f"  3. Insufficient system resources\n"
             f"\n"
-            f"建议:\n"
-            f"  - 检查网络连接\n"
-            f"  - 尝试更换 RPC URL\n"
-            f"  - 重启测试\n"
-            f"  - 检查 WSL2 资源配置"
+            f"Suggestions:\n"
+            f"  - Check network connection\n"
+            f"  - Try changing RPC URL\n"
+            f"  - Restart test\n"
+            f"  - Check WSL2 resource configuration"
         )
     
     def _cleanup_anvil(self):
-        """清理 Anvil 进程"""
+        """Cleanup Anvil process"""
         if self.anvil_process:
             try:
                 self.anvil_process.terminate()
                 self.anvil_process.wait(timeout=5)
-                print("✓ Anvil 进程已终止")
+                print("✓ Anvil process terminated")
             except:
                 self.anvil_process.kill()
-                print("✓ Anvil 进程已强制终止")
+                print("✓ Anvil process forcibly terminated")
             self.anvil_process = None
     
     def _is_port_in_use(self, port: int) -> bool:
-        """检查端口是否被占用"""
+        """Check if port is in use"""
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
             return s.connect_ex(('127.0.0.1', port)) == 0
     
     def _kill_zombie_anvil(self):
         """
-        清理可能存在的僵尸 Anvil 进程
+        Clean up potential zombie Anvil processes
         """
         try:
             import psutil
@@ -462,12 +462,12 @@ class QuestEnvironment:
             killed_count = 0
             for proc in psutil.process_iter(['pid', 'name', 'cmdline']):
                 try:
-                    # 检查是否是 anvil 进程
+                    # Check if it's an anvil process
                     cmdline = proc.info.get('cmdline', [])
                     if cmdline and 'anvil' in ' '.join(cmdline).lower():
-                        # 检查是否使用相同端口
+                        # Check if using the same port
                         if str(self.anvil_port) in ' '.join(cmdline):
-                            print(f"   清理僵尸 Anvil 进程: PID {proc.info['pid']}")
+                            print(f"   Cleaning up zombie Anvil process: PID {proc.info['pid']}")
                             proc.kill()
                             proc.wait(timeout=3)
                             killed_count += 1
@@ -475,16 +475,16 @@ class QuestEnvironment:
                     continue
             
             if killed_count > 0:
-                print(f"   ✓ 清理了 {killed_count} 个僵尸进程")
-                time.sleep(1)  # 等待端口释放
+                print(f"   ✓ Cleaned up {killed_count} zombie processes")
+                time.sleep(1)  # Wait for port release
         except ImportError:
-            # psutil 未安装，尝试系统命令
+            # psutil not installed, try system commands
             import platform
             system = platform.system()
             
             try:
                 if system == 'Linux':
-                    # Linux: 使用 lsof 查找占用端口的进程
+                    # Linux: Use lsof to find process using port
                     result = subprocess.run(
                         ['lsof', '-ti', f':{self.anvil_port}'],
                         capture_output=True,
@@ -496,12 +496,12 @@ class QuestEnvironment:
                         for pid in pids:
                             try:
                                 subprocess.run(['kill', '-9', pid], timeout=2)
-                                print(f"   清理进程: PID {pid}")
+                                print(f"   Cleaning up process: PID {pid}")
                             except:
                                 pass
                         time.sleep(1)
                 elif system == 'Windows':
-                    # Windows: 使用 netstat 查找占用端口的进程
+                    # Windows: Use netstat to find process using port
                     result = subprocess.run(
                         ['netstat', '-ano'],
                         capture_output=True,
@@ -516,7 +516,7 @@ class QuestEnvironment:
                                     pid = parts[-1]
                                     try:
                                         subprocess.run(['taskkill', '/F', '/PID', pid], timeout=2)
-                                        print(f"   清理进程: PID {pid}")
+                                        print(f"   Cleaning up process: PID {pid}")
                                     except:
                                         pass
                         time.sleep(1)
@@ -525,20 +525,20 @@ class QuestEnvironment:
     
     def _test_fork_url(self, timeout=5):
         """
-        测试 Fork URL 连接
+        Test Fork URL connection
         
         Args:
-            timeout: 超时时间（秒）
+            timeout: Timeout (seconds)
         
         Returns:
-            bool: 连接成功返回 True，否则返回 False
+            bool: True if connected successfully, else False
         """
         import json
         import urllib.request
         import urllib.error
         
         try:
-            # 发送简单的 eth_blockNumber 请求
+            # Send simple eth_blockNumber request
             data = json.dumps({
                 "jsonrpc": "2.0",
                 "method": "eth_blockNumber",
@@ -556,49 +556,49 @@ class QuestEnvironment:
                 result = json.loads(response.read().decode('utf-8'))
                 if 'result' in result:
                     block_num = int(result['result'], 16)
-                    print(f"   ✓ Fork URL 连接成功 (区块: {block_num})")
+                    print(f"   ✓ Fork URL connected successfully (Block: {block_num})")
                     return True
                 else:
-                    print(f"   ⚠️  Fork URL 响应异常: {result}")
+                    print(f"   ⚠️  Fork URL response abnormal: {result}")
                     return False
         except urllib.error.URLError as e:
-            print(f"   ⚠️  网络错误: {e.reason}")
+            print(f"   ⚠️  Network error: {e.reason}")
             return False
         except Exception as e:
-            print(f"   ⚠️  连接测试失败: {e}")
+            print(f"   ⚠️  Connection test failed: {e}")
             return False
     
     def _preheat_contracts(self):
         """
-        预热常用合约地址
+        Preheat common contract addresses
         
-        通过访问合约代码和余额，触发 Anvil 从远程节点拉取合约数据
-        这样在后续测试中就能正确检测到合约
+        Triggers Anvil to pull contract data from remote node by accessing contract code and balance
+        This ensures contracts are correctly detected in subsequent tests
         """
         from eth_utils import to_checksum_address
         
-        # BSC Mainnet 常用合约地址
+        # BSC Mainnet common contract addresses
         contract_addresses = [
             "0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c",  # WBNB
             "0xcA143Ce32Fe78f1f7019d7d551a6402fC5350c73",  # PancakeFactory V2
             "0x10ED43C718714eb63d5aA57B78B54704E256024E",  # PancakeRouter V2
         ]
         
-        print(f"✓ 预热合约地址 (Anvil 从远程节点拉取数据)...")
+        print(f"✓ Preheating contract addresses (Anvil pulling data from remote)...")
         for addr in contract_addresses:
             try:
-                # 使用 checksum 地址
+                # Use checksum address
                 addr_checksum = to_checksum_address(addr)
                 print(f"  • {addr_checksum}")
                 
-                # 访问合约代码（触发 Anvil 拉取）
+                # Access contract code (trigger Anvil pull)
                 code = self.w3.eth.get_code(addr_checksum)
                 print(f"    - get_code(): {len(code) if code else 0} bytes")
                 
                 balance = self.w3.eth.get_balance(addr_checksum)
                 print(f"    - get_balance(): {balance / 10**18:.6f} BNB")
                 
-                # 额外：尝试读取 storage 来确保数据被拉取
+                # Extra: Try reading storage to ensure data is pulled
                 try:
                     storage = self.w3.eth.get_storage_at(addr_checksum, 0)
                     print(f"    - get_storage_at(0): {storage.hex()[:20]}...")
@@ -620,16 +620,16 @@ class QuestEnvironment:
     
     def _set_erc20_balance_direct(self, token_address: str, holder_address: str, amount: int, balance_slot: int = 1) -> bool:
         """
-        直接设置 ERC20 token 余额（使用 anvil_setStorageAt）
+        Directly set ERC20 token balance (using anvil_setStorageAt)
         
         Args:
-            token_address: Token 合约地址
-            holder_address: 持有者地址
-            amount: 余额数量（最小单位）
-            balance_slot: balances mapping 的 storage slot（大多数是1，WBNB是3）
+            token_address: Token contract address
+            holder_address: Holder address
+            amount: Balance amount (smallest unit)
+            balance_slot: storage slot for balances mapping (mostly 1, WBNB is 3)
             
         Returns:
-            是否设置成功
+            Whether setting was successful
         """
         from eth_utils import to_checksum_address, keccak
         from eth_abi import encode
@@ -638,12 +638,12 @@ class QuestEnvironment:
             token_addr = to_checksum_address(token_address)
             holder_addr = to_checksum_address(holder_address)
             
-            # 计算 storage slot: keccak256(address + slot)
+            # Calculate storage slot: keccak256(address + slot)
             address_padded = holder_addr[2:].lower().rjust(64, '0')
             slot_padded = hex(balance_slot)[2:].rjust(64, '0')
             storage_key = '0x' + keccak(bytes.fromhex(address_padded + slot_padded)).hex()
             
-            # 设置余额 - 需要补齐到 32 bytes (64 hex chars)
+            # Set balance - needs padding to 32 bytes (64 hex chars)
             balance_hex = hex(amount)
             if balance_hex.startswith('0x'):
                 balance_hex = balance_hex[2:]
@@ -655,7 +655,7 @@ class QuestEnvironment:
                 balance_hex
             ])
             
-            # 验证余额
+            # Verify balance
             balance_of_selector = bytes.fromhex('70a08231')
             balance_data = '0x' + balance_of_selector.hex() + encode(['address'], [holder_addr]).hex()
             result = self.w3.eth.call({
@@ -664,7 +664,7 @@ class QuestEnvironment:
             })
             
             actual_balance = int(result.hex(), 16)
-            # 允许1%误差，但要用整数比较
+            # Allow 1% error, but use integer comparison
             min_expected = int(amount * 0.99)
             
             if actual_balance >= min_expected:
@@ -681,9 +681,9 @@ class QuestEnvironment:
     
     def _set_token_balances(self):
         """
-        设置测试账户的 ERC20 token 余额
+        Set ERC20 token balances for test account
         
-        使用 anvil_setStorageAt 直接操作 storage，快速可靠
+        Uses anvil_setStorageAt to directly manipulate storage, fast and reliable
         """
         from eth_utils import to_checksum_address
         from eth_abi import encode
@@ -693,7 +693,7 @@ class QuestEnvironment:
         cake_address = '0x0E09FaBB73Bd3Ade0a17ECC321fD13a19e81cE82'
         busd_address = '0xe9e7CEA3DedcA5984780Bafc599bD69ADd087D56'
         
-        print(f"✓ 设置 ERC20 token 余额...")
+        print(f"✓ Setting ERC20 token balances...")
         
         # USDT (slot 1, 1000 tokens)
         try:
@@ -705,7 +705,7 @@ class QuestEnvironment:
         except Exception as e:
             print(f"  • USDT: ❌ Error - {e}")
         
-        # WBNB (slot 3, 100 tokens) - WETH9 标准
+        # WBNB (slot 3, 100 tokens) - WETH9 standard
         try:
             amount = 100 * 10**18
             if self._set_erc20_balance_direct(wbnb_address, self.test_address, amount, balance_slot=3):
@@ -715,7 +715,7 @@ class QuestEnvironment:
         except Exception as e:
             print(f"  • WBNB: ❌ Error - {e}")
         
-        # CAKE (slot 1, 200 tokens) - OpenZeppelin 标准
+        # CAKE (slot 1, 200 tokens) - OpenZeppelin standard
         # Note: 100 CAKE will be transferred to SimpleRewardPool during deployment,
         # so we set 200 CAKE initially to ensure test account has enough balance
         try:
@@ -727,7 +727,7 @@ class QuestEnvironment:
         except Exception as e:
             print(f"  • CAKE: ❌ Error - {e}")
         
-        # BUSD (slot 1, 1000 tokens) - OpenZeppelin 标准
+        # BUSD (slot 1, 1000 tokens) - OpenZeppelin standard
         try:
             amount = 1000 * 10**18
             if self._set_erc20_balance_direct(busd_address, self.test_address, amount, balance_slot=1):
@@ -738,7 +738,7 @@ class QuestEnvironment:
             print(f"  • BUSD: ❌ Error - {e}")
         
         # USDT/BUSD LP Token (slot 1, 5 LP tokens) - PancakeSwap LP tokens use slot 1 (OpenZeppelin ERC20 standard)
-        # 这些 LP tokens 用于 harvest_rewards, unstake_lp_tokens, remove_liquidity 等测试
+        # These LP tokens are used for harvest_rewards, unstake_lp_tokens, remove_liquidity tests
         try:
             lp_token_address = '0x7EFaEf62fDdCCa950418312c6C91Aef321375A00'
             amount = 5 * 10**18  # 5 LP tokens
@@ -749,7 +749,7 @@ class QuestEnvironment:
         except Exception as e:
             print(f"  • USDT/BUSD LP: ❌ Error - {e}")
         
-        # WBNB/USDT LP Token (slot 1, 3 LP tokens) - 用于 remove_liquidity_bnb_token 测试
+        # WBNB/USDT LP Token (slot 1, 3 LP tokens) - Used for remove_liquidity_bnb_token test
         try:
             wbnb_usdt_lp_address = '0x16b9a82891338f9bA80E2D6970FddA79D1eb0daE'
             amount = 3 * 10**18  # 3 LP tokens
@@ -760,20 +760,20 @@ class QuestEnvironment:
         except Exception as e:
             print(f"  • WBNB/USDT LP: ❌ Error - {e}")
         
-        # 设置初始 allowances（用于 revoke approval 测试）
-        print(f"✓ 设置初始 allowances...")
+        # Set initial allowances (for revoke approval tests)
+        print(f"✓ Setting initial allowances...")
         try:
             usdt_addr = to_checksum_address(usdt_address)
             test_addr = to_checksum_address(self.test_address)
             
-            # 需要授权的合约地址（PancakeSwap Router, Venus Protocol, etc）
+            # Contract addresses requiring approval (PancakeSwap Router, Venus Protocol, etc)
             spenders = [
                 '0x10ED43C718714eb63d5aA57B78B54704E256024E',  # PancakeSwap Router
                 '0x13f4EA83D0bd40E75C8222255bc855a974568Dd4',  # Venus Protocol
                 '0x1B81D678ffb9C0263b24A97847620C99d213eB14'   # PancakeSwap V3 Router
             ]
             
-            # Impersonate 测试账户
+            # Impersonate test account
             self.w3.provider.make_request('anvil_impersonateAccount', [test_addr])
             
             for spender in spenders:
@@ -786,7 +786,7 @@ class QuestEnvironment:
                 approve_amount = 1000 * 10**18
                 approve_data = '0x' + approve_selector.hex() + encode(['address', 'uint256'], [spender_addr, approve_amount]).hex()
             
-                # 发送 approve 交易
+                # Send approve transaction
                 response = self.w3.provider.make_request(
                 'eth_sendTransaction',
                 [{
@@ -798,14 +798,14 @@ class QuestEnvironment:
                 }]
                 )
                 
-                # 检查响应
+                # Check response
                 if 'result' not in response:
                     print(f"  • Allowance for {spender[:10]}...: ❌ Failed - {response.get('error', 'Unknown error')}")
                     continue
                 
                 tx_hash = response['result']
             
-                # 等待确认
+                # Wait for confirmation
             max_attempts = 20
             for i in range(max_attempts):
                 try:
@@ -816,7 +816,7 @@ class QuestEnvironment:
                     pass
                 time.sleep(0.5)
             
-            # 停止 impersonate
+            # Stop impersonate
             self.w3.provider.make_request('anvil_stopImpersonatingAccount', [test_addr])
             
             print(f"  • USDT allowances set for {len(spenders)} spenders ✅")
@@ -826,17 +826,17 @@ class QuestEnvironment:
             import traceback
             traceback.print_exc()
         
-        # 设置 CAKE token allowances（用于 multi-hop swap 测试）
+        # Set CAKE token allowances (for multi-hop swap tests)
         try:
             cake_address = '0x0E09FaBB73Bd3Ade0a17ECC321fD13a19e81cE82'  # CAKE token on BSC
             cake_addr = to_checksum_address(cake_address)
             test_addr = to_checksum_address(self.test_address)
             
-            # PancakeSwap Router 需要 CAKE allowance
+            # PancakeSwap Router needs CAKE allowance
             router_address = '0x10ED43C718714eb63d5aA57B78B54704E256024E'
             router_addr = to_checksum_address(router_address)
             
-            # Impersonate 测试账户
+            # Impersonate test account
             self.w3.provider.make_request('anvil_impersonateAccount', [test_addr])
             
             # ERC20 approve function selector: 0x095ea7b3
@@ -845,7 +845,7 @@ class QuestEnvironment:
             approve_amount = 200 * 10**18
             approve_data = '0x' + approve_selector.hex() + encode(['address', 'uint256'], [router_addr, approve_amount]).hex()
             
-            # 发送 approve 交易
+            # Send approve transaction
             response = self.w3.provider.make_request(
                 'eth_sendTransaction',
                 [{
@@ -860,7 +860,7 @@ class QuestEnvironment:
             if 'result' in response:
                 tx_hash = response['result']
             
-            # 等待确认
+            # Wait for confirmation
             max_attempts = 20
             for i in range(max_attempts):
                 try:
@@ -871,7 +871,7 @@ class QuestEnvironment:
                     pass
                 time.sleep(0.5)
             
-            # 停止 impersonate
+            # Stop impersonate
             self.w3.provider.make_request('anvil_stopImpersonatingAccount', [test_addr])
             
             print(f"  • CAKE allowances set for Router ✅")
@@ -883,7 +883,7 @@ class QuestEnvironment:
         
         # CAKE allowances for SimpleStaking will be set after deployment in _deploy_simple_staking()
         
-        # 设置 LP token allowances（用于 remove_liquidity 和 staking 测试）
+        # Set LP token allowances (for remove_liquidity and staking tests)
         try:
             # USDT/BUSD LP token
             usdt_busd_lp_address = '0x7EFaEf62fDdCCa950418312c6C91Aef321375A00'
@@ -893,11 +893,11 @@ class QuestEnvironment:
             wbnb_usdt_lp_address = '0x16b9a82891338f9bA80E2D6970FddA79D1eb0daE'
             wbnb_usdt_lp_addr = to_checksum_address(wbnb_usdt_lp_address)
             
-            # PancakeSwap Router 需要 LP token allowances
+            # PancakeSwap Router needs LP token allowances
             router_address = '0x10ED43C718714eb63d5aA57B78B54704E256024E'
             router_addr = to_checksum_address(router_address)
             
-            # Impersonate 测试账户
+            # Impersonate test account
             self.w3.provider.make_request('anvil_impersonateAccount', [test_addr])
             
             # Approve both LP tokens for Router
@@ -938,17 +938,17 @@ class QuestEnvironment:
             import traceback
             traceback.print_exc()
         
-        # 设置 BUSD token allowances（用于 liquidity 操作）
+        # Set BUSD token allowances (for liquidity operations)
         try:
             busd_address = '0xe9e7CEA3DedcA5984780Bafc599bD69ADd087D56'  # BUSD token on BSC
             busd_addr = to_checksum_address(busd_address)
             test_addr = to_checksum_address(self.test_address)
             
-            # PancakeSwap Router 需要 BUSD allowance
+            # PancakeSwap Router needs BUSD allowance
             router_address = '0x10ED43C718714eb63d5aA57B78B54704E256024E'
             router_addr = to_checksum_address(router_address)
             
-            # Impersonate 测试账户
+            # Impersonate test account
             self.w3.provider.make_request('anvil_impersonateAccount', [test_addr])
             
             # ERC20 approve function selector: 0x095ea7b3
@@ -957,7 +957,7 @@ class QuestEnvironment:
             approve_amount = 1000 * 10**18
             approve_data = '0x' + approve_selector.hex() + encode(['address', 'uint256'], [router_addr, approve_amount]).hex()
             
-            # 发送 approve 交易
+            # Send approve transaction
             response = self.w3.provider.make_request(
                 'eth_sendTransaction',
                 [{
@@ -972,7 +972,7 @@ class QuestEnvironment:
             if 'result' in response:
                 tx_hash = response['result']
                 
-                # 等待确认
+                # Wait for confirmation
                 max_attempts = 20
                 for i in range(max_attempts):
                     try:
@@ -983,7 +983,7 @@ class QuestEnvironment:
                         pass
                     time.sleep(0.5)
             
-            # 停止 impersonate
+            # Stop impersonate
             self.w3.provider.make_request('anvil_stopImpersonatingAccount', [test_addr])
             
             print(f"  • BUSD allowances set for Router ✅")
@@ -993,8 +993,8 @@ class QuestEnvironment:
             import traceback
             traceback.print_exc()
         
-        # 设置 LP tokens（用于 remove_liquidity 测试）
-        print(f"✓ 设置 LP tokens...")
+        # Set LP tokens (for remove_liquidity tests)
+        print(f"✓ Setting LP tokens...")
         try:
             from eth_utils import keccak
             
@@ -1028,7 +1028,7 @@ class QuestEnvironment:
             else:
                 print(f"  • LP Token balance: Failed to set")
                 
-            # Approve LP tokens for Router (用于 remove liquidity)
+            # Approve LP tokens for Router (for remove liquidity)
             self.w3.provider.make_request('anvil_impersonateAccount', [test_addr])
             
             approve_selector = bytes.fromhex('095ea7b3')
@@ -1048,7 +1048,7 @@ class QuestEnvironment:
             
             if 'result' in response:
                 tx_hash = response['result']
-                # 等待确认
+                # Wait for confirmation
                 for i in range(10):
                     try:
                         receipt = self.w3.provider.make_request('eth_getTransactionReceipt', [tx_hash])['result']
@@ -1119,16 +1119,16 @@ class QuestEnvironment:
             import traceback
             traceback.print_exc()
         
-        # 设置 NFT（用于 ERC721 测试）
-        print(f"✓ 设置 NFT 所有权...")
+        # Setup NFT (for ERC721 tests)
+        print(f"✓ Setting NFT ownership...")
         try:
             # PancakeSquad NFT on BSC Mainnet
             pancake_squad_address = '0x0a8901b0E25DEb55A87524f0cC164E9644020EBA'
             nft_addr = to_checksum_address(pancake_squad_address)
             test_addr = to_checksum_address(self.test_address)
-            token_id = 1  # 我们要转移的 NFT ID
+            token_id = 1  # NFT ID to transfer
             
-            # 先查询当前所有者
+            # Query current owner first
             owner_of_selector = bytes.fromhex('6352211e')  # ownerOf(uint256)
             token_id_hex = format(token_id, '064x')
             owner_data = '0x' + owner_of_selector.hex() + token_id_hex
@@ -1144,7 +1144,7 @@ class QuestEnvironment:
                 current_owner_addr = to_checksum_address(current_owner)
                 print(f"  • NFT #{token_id} current owner: {current_owner_addr}")
                 
-                # Impersonate 当前所有者
+                # Impersonate current owner
                 self.w3.provider.make_request('anvil_impersonateAccount', [current_owner_addr])
                 
                 # ERC721 transferFrom function selector: 0x23b872dd
@@ -1153,7 +1153,7 @@ class QuestEnvironment:
                 # Encode: from (32 bytes) + to (32 bytes) + tokenId (32 bytes)
                 transfer_data = '0x' + transfer_selector.hex() + encode(['address', 'address', 'uint256'], [current_owner_addr, test_addr, token_id]).hex()
                 
-                # 发送 transferFrom 交易
+                # Send transferFrom transaction
                 response = self.w3.provider.make_request(
                     'eth_sendTransaction',
                     [{
@@ -1165,14 +1165,14 @@ class QuestEnvironment:
                     }]
                 )
                 
-                # 检查响应
+                # Check response
                 if 'result' not in response:
                     print(f"  • NFT: ❌ Transaction failed - {response.get('error', 'Unknown error')}")
                     raise Exception(f"NFT transfer failed: {response}")
                 
                 tx_hash = response['result']
                 
-                # 等待确认
+                # Wait for confirmation
                 max_attempts = 20
                 for i in range(max_attempts):
                     try:
@@ -1183,10 +1183,10 @@ class QuestEnvironment:
                         pass
                     time.sleep(0.5)
                 
-                # 停止 impersonate
+                # Stop impersonate
                 self.w3.provider.make_request('anvil_stopImpersonatingAccount', [current_owner_addr])
                 
-                # 验证 NFT 所有者
+                # Verify NFT owner
                 result = self.w3.eth.call({
                     'to': nft_addr,
                     'data': owner_data
@@ -1213,57 +1213,57 @@ class QuestEnvironment:
         
         print()
         
-        # 7. 部署 ERC1363 测试代币
+        # 7. Deploy ERC1363 test token
         self._deploy_erc1363_token()
         
-        # 8. 部署 ERC721 测试 NFT
+        # 8. Deploy ERC721 test NFT
         self._deploy_erc721_test_nft()
         
-        # 9. 部署 ERC1155 测试代币
+        # 9. Deploy ERC1155 test token
         self._deploy_erc1155_token()
         
-        # 9. 部署闪电贷接收合约
+        # 9. Deploy Flashloan receiver contract
         self._deploy_flashloan_receiver()
         
-        # 10. 部署 SimpleCounter 测试合约
+        # 10. Deploy SimpleCounter test contract
         self._deploy_simple_counter()
         
-        # 11. 部署 DonationBox 测试合约
+        # 11. Deploy DonationBox test contract
         self._deploy_donation_box()
         
-        # 12. 部署 MessageBoard 测试合约
+        # 12. Deploy MessageBoard test contract
         self._deploy_message_board()
         
-        # 13. 部署 DelegateCall 测试合约
+        # 13. Deploy DelegateCall test contracts
         self._deploy_delegate_call_contracts()
         
-        # 14. 部署 FallbackReceiver 测试合约
+        # 14. Deploy FallbackReceiver test contract
         self._deploy_fallback_receiver()
         
-        # 15. 部署 SimpleStaking 测试合约
+        # 15. Deploy SimpleStaking test contract
         self._deploy_simple_staking()
         
-        # 16. 部署 SimpleLPStaking 测试合约
+        # 16. Deploy SimpleLPStaking test contract
         self._deploy_simple_lp_staking()
         
-        # 17. 部署 SimpleRewardPool 测试合约
+        # 17. Deploy SimpleRewardPool test contract
         self._deploy_simple_reward_pool()
     
     def _deploy_erc1363_token(self):
         """
-        部署 ERC1363 测试代币并给测试账户分配代币
+        Deploy ERC1363 test token and allocate tokens to test account
         
-        ERC1363 是 ERC20 的扩展，支持 transferAndCall 和 approveAndCall
+        ERC1363 is an extension of ERC20, supporting transferAndCall and approveAndCall
         """
         from eth_utils import to_checksum_address
         from eth_abi import encode
         
-        print(f"✓ 部署 ERC1363 测试代币...")
+        print(f"✓ Deploying ERC1363 test token...")
         
         try:
             test_addr = to_checksum_address(self.test_address)
             
-            # 读取合约源代码并使用 py-solc-x 编译
+            # Read contract source code and compile with py-solc-x
             contract_source = """
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.0;
@@ -1407,19 +1407,19 @@ contract ERC1363Token {
 }
 """
             
-            # 使用 solcx 编译合约
+            # Compile contract using solcx
             try:
                 from solcx import compile_source, install_solc, set_solc_version
                 
-                # 尝试使用已安装的 solc，如果没有则安装
+                # Try to use installed solc, install if not available
                 try:
                     set_solc_version('0.8.20')
                 except:
-                    print("  • 安装 Solidity 编译器 v0.8.20...")
+                    print("  • Installing Solidity compiler v0.8.20...")
                     install_solc('0.8.20')
                     set_solc_version('0.8.20')
                 
-                # 编译合约
+                # Compile contract
                 compiled_sol = compile_source(contract_source, output_values=['abi', 'bin'])
                 contract_interface = compiled_sol['<stdin>:ERC1363Token']
                 
@@ -1428,14 +1428,14 @@ contract ERC1363Token {
                 
             except Exception as e:
                 print(f"  • ⚠️  Solc not available: {e}")
-                print(f"  • 尝试安装 py-solc-x: pip install py-solc-x")
+                print(f"  • Trying to install py-solc-x: pip install py-solc-x")
                 raise Exception("Cannot compile ERC1363 contract without solc. Please install: pip install py-solc-x")
             
-            # 部署合约
-            # Impersonate测试账户以便部署合约
+            # Deploy contract
+            # Impersonate test account to deploy contract
             self.w3.provider.make_request('anvil_impersonateAccount', [test_addr])
             
-            # 发送部署交易
+            # Send deployment transaction
             deploy_response = self.w3.provider.make_request(
                 'eth_sendTransaction',
                 [{
@@ -1451,7 +1451,7 @@ contract ERC1363Token {
             
             tx_hash = deploy_response['result']
             
-            # 等待部署确认
+            # Wait for deployment confirmation
             max_attempts = 20
             receipt = None
             for i in range(max_attempts):
@@ -1467,17 +1467,17 @@ contract ERC1363Token {
             if not receipt or not receipt.get('contractAddress'):
                 raise Exception("Contract deployment failed - no contract address")
             
-            # 获取部署的合约地址
+            # Get deployed contract address
             erc1363_address = receipt['contractAddress']
             erc1363_address = to_checksum_address(erc1363_address)
             
-            # 停止 impersonate
+            # Stop impersonate
             self.w3.provider.make_request('anvil_stopImpersonatingAccount', [test_addr])
             
-            # 存储合约地址供后续使用
+            # Store contract address for later use
             self.erc1363_token_address = erc1363_address
             
-            # 验证部署
+            # Verify deployment
             balance_selector = bytes.fromhex('70a08231')  # balanceOf(address)
             balance_data = '0x' + balance_selector.hex() + encode(['address'], [test_addr]).hex()
             
@@ -1492,13 +1492,13 @@ contract ERC1363Token {
             print(f"  • ERC1363 Token deployed: {erc1363_address}")
             print(f"  • Test account balance: {balance_formatted:.2f} T1363 ✅")
             
-            # 预先设置测试账户授权给自己（用于 permit/transferFrom 测试）
+            # Pre-approve test account to itself (for permit/transferFrom tests)
             # approve(address spender, uint256 value)
             try:
                 self.w3.provider.make_request('anvil_impersonateAccount', [test_addr])
                 
                 approve_selector = bytes.fromhex('095ea7b3')  # approve(address,uint256)
-                # 授权无限额度: 2^256 - 1
+                # Approve infinite amount: 2^256 - 1
                 max_uint256 = 2**256 - 1
                 approve_data = '0x' + approve_selector.hex() + encode(['address', 'uint256'], [test_addr, max_uint256]).hex()
                 
@@ -1513,7 +1513,7 @@ contract ERC1363Token {
                     }]
                 )
                 
-                # 等待授权交易确认
+                # Wait for approval transaction confirmation
                 if 'result' in approve_response:
                     time.sleep(0.5)
                 
@@ -1526,7 +1526,7 @@ contract ERC1363Token {
             print(f"  • ERC1363 Token: ❌ Deployment failed - {e}")
             import traceback
             traceback.print_exc()
-            # 设置为 None 表示未部署
+            # Set to None indicating not deployed
             self.erc1363_token_address = None
         
         print()
@@ -1786,19 +1786,19 @@ interface IERC721Receiver {
     
     def _deploy_erc1155_token(self):
         """
-        部署 ERC1155 测试代币并给测试账户分配代币
+        Deploy ERC1155 test token and allocate tokens to test account
         
-        ERC1155 是多代币标准，支持同时管理多种代币类型
+        ERC1155 is a multi-token standard, supporting management of multiple token types simultaneously
         """
         from eth_utils import to_checksum_address
         from eth_abi import encode
         
-        print("✓ 部署 ERC1155 测试代币...")
+        print("✓ Deploying ERC1155 test token...")
         
         try:
             test_addr = self.test_address
             
-            # ERC1155 合约源代码
+            # ERC1155 contract source code
             contract_source = """
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.0;
@@ -1930,19 +1930,19 @@ contract TestERC1155Token {
 }
 """
             
-            # 使用 solcx 编译合约
+            # Compile contract using solcx
             try:
                 from solcx import compile_source, install_solc, set_solc_version
                 
-                # 尝试使用已安装的 solc，如果没有则安装
+                # Try to use installed solc, install if not available
                 try:
                     set_solc_version('0.8.20')
                 except:
-                    print("  • 安装 Solidity 编译器 v0.8.20...")
+                    print("  • Installing Solidity compiler v0.8.20...")
                     install_solc('0.8.20')
                     set_solc_version('0.8.20')
                 
-                # 编译合约
+                # Compile contract
                 compiled_sol = compile_source(contract_source, output_values=['abi', 'bin'])
                 contract_interface = compiled_sol['<stdin>:TestERC1155Token']
                 
@@ -1953,11 +1953,11 @@ contract TestERC1155Token {
                 print(f"  • ⚠️  Solc compilation error: {e}")
                 raise Exception("Cannot compile ERC1155 contract")
             
-            # 部署合约
-            # Impersonate测试账户以便部署合约
+            # Deploy contract
+            # Impersonate test account to deploy contract
             self.w3.provider.make_request('anvil_impersonateAccount', [test_addr])
             
-            # 发送部署交易
+            # Send deployment transaction
             deploy_response = self.w3.provider.make_request(
                 'eth_sendTransaction',
                 [{
@@ -1973,7 +1973,7 @@ contract TestERC1155Token {
             
             tx_hash = deploy_response['result']
             
-            # 等待部署确认
+            # Wait for deployment confirmation
             max_attempts = 20
             receipt = None
             for i in range(max_attempts):
@@ -1989,17 +1989,17 @@ contract TestERC1155Token {
             if not receipt or not receipt.get('contractAddress'):
                 raise Exception("Contract deployment failed - no contract address")
             
-            # 获取部署的合约地址
+            # Get deployed contract address
             erc1155_address = receipt['contractAddress']
             erc1155_address = to_checksum_address(erc1155_address)
             
-            # 停止 impersonate
+            # Stop impersonate
             self.w3.provider.make_request('anvil_stopImpersonatingAccount', [test_addr])
             
-            # 存储合约地址供后续使用
+            # Store contract address for later use
             self.erc1155_token_address = erc1155_address
             
-            # 验证部署 - 查询 token ID 1 的余额
+            # Verify deployment - query balance of token ID 1
             # balanceOf(address account, uint256 id)
             balance_selector = bytes.fromhex('00fdd58e')  # balanceOf(address,uint256)
             balance_data = '0x' + balance_selector.hex() + encode(['address', 'uint256'], [test_addr, 1]).hex()
@@ -2020,27 +2020,27 @@ contract TestERC1155Token {
             print(f"  • ERC1155 Token: ❌ Deployment failed - {e}")
             import traceback
             traceback.print_exc()
-            # 设置为 None 表示未部署
+            # Set to None indicating not deployed
             self.erc1155_token_address = None
         
         print()
     
     def _deploy_flashloan_receiver(self):
         """
-        部署闪电贷接收合约
+        Deploy Flashloan Receiver Contract
         
-        这是一个简单的闪电贷提供者+接收者合约，用于测试闪电贷功能
+        This is a simple flashloan provider+receiver contract for testing flashloan functionality
         """
         from eth_utils import to_checksum_address
         from eth_abi import encode
         
-        print("✓ 部署闪电贷合约...")
+        print("✓ Deploying Flashloan contract...")
         
         try:
             test_addr = self.test_address
             
-            # 简单的闪电贷合约源代码
-            # 这个合约既是提供者又是接收者，简化了测试流程
+            # Simple flashloan contract source code
+            # This contract acts as both provider and receiver, simplifying test flow
             contract_source = """
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.0;
@@ -2061,37 +2061,37 @@ contract FlashLoanReceiver {
         owner = msg.sender;
     }
     
-    // 执行闪电贷
-    // 1. 从合约中借出代币
-    // 2. 调用者可以使用这些代币
-    // 3. 在同一交易中归还代币+手续费
+    // Execute Flash Loan
+    // 1. Borrow tokens from contract
+    // 2. Caller can use these tokens
+    // 3. Repay tokens + fee in same transaction
     function executeFlashLoan(
         address token,
         uint256 amount
     ) external returns (bool) {
-        // 计算手续费 (0.3%)
+        // Calculate fee (0.3%)
         uint256 fee = (amount * 3) / 1000;
         uint256 amountToRepay = amount + fee;
         
-        // 检查合约是否有足够的代币可以借出
+        // Check if contract has enough tokens to lend
         uint256 balanceBefore = IERC20(token).balanceOf(address(this));
         require(balanceBefore >= amount, "Insufficient balance in pool");
         
-        // 1. 将代币转给调用者（借款）
+        // 1. Transfer tokens to caller (borrow)
         require(IERC20(token).transfer(msg.sender, amount), "Loan transfer failed");
         
-        // 2. 调用者现在拥有这些代币，可以进行任何操作
-        // 在真实的闪电贷中，这里会调用借款人合约的回调函数
-        // 但为了简化测试，我们假设调用者会在同一交易中归还
+        // 2. Caller now owns tokens, can perform any operation
+        // In real flashloan, this would call borrower contract's callback
+        // But for simplified testing, we assume caller repays in same transaction
         
-        // 3. 检查调用者是否归还了代币+手续费
-        // 调用者需要先 approve 这个合约
+        // 3. Check if caller repaid tokens + fee
+        // Caller needs to approve this contract first
         require(
             IERC20(token).transferFrom(msg.sender, address(this), amountToRepay),
             "Repayment failed"
         );
         
-        // 验证余额增加了手续费
+        // Verify balance increased by fee
         uint256 balanceAfter = IERC20(token).balanceOf(address(this));
         require(balanceAfter >= balanceBefore + fee, "Fee not paid");
         
@@ -2099,7 +2099,7 @@ contract FlashLoanReceiver {
         return true;
     }
     
-    // 允许 owner 存入代币到流动性池
+    // Allow owner to deposit tokens to liquidity pool
     function depositToPool(address token, uint256 amount) external {
         require(msg.sender == owner, "Only owner can deposit");
         require(
@@ -2108,12 +2108,12 @@ contract FlashLoanReceiver {
         );
     }
     
-    // 查询池中的代币余额
+    // Query token balance in pool
     function poolBalance(address token) external view returns (uint256) {
         return IERC20(token).balanceOf(address(this));
     }
     
-    // 允许 owner 提取代币
+    // Allow owner to withdraw tokens
     function withdraw(address token, uint256 amount) external {
         require(msg.sender == owner, "Only owner can withdraw");
         require(IERC20(token).transfer(msg.sender, amount), "Withdraw failed");
@@ -2121,19 +2121,19 @@ contract FlashLoanReceiver {
 }
 """
             
-            # 使用 solcx 编译合约
+            # Compile contract using solcx
             try:
                 from solcx import compile_source, install_solc, set_solc_version
                 
-                # 尝试使用已安装的 solc，如果没有则安装
+                # Try to use installed solc, install if not available
                 try:
                     set_solc_version('0.8.20')
                 except:
-                    print("  • 安装 Solidity 编译器 v0.8.20...")
+                    print("  • Installing Solidity compiler v0.8.20...")
                     install_solc('0.8.20')
                     set_solc_version('0.8.20')
                 
-                # 编译合约
+                # Compile contract
                 compiled_sol = compile_source(contract_source, output_values=['abi', 'bin'])
                 contract_interface = compiled_sol['<stdin>:FlashLoanReceiver']
                 
@@ -2144,11 +2144,11 @@ contract FlashLoanReceiver {
                 print(f"  • ⚠️  Solc compilation error: {e}")
                 raise Exception("Cannot compile FlashLoan contract")
             
-            # 部署合约
-            # Impersonate测试账户以便部署合约
+            # Deploy contract
+            # Impersonate test account to deploy contract
             self.w3.provider.make_request('anvil_impersonateAccount', [test_addr])
             
-            # 发送部署交易
+            # Send deployment transaction
             deploy_response = self.w3.provider.make_request(
                 'eth_sendTransaction',
                 [{
@@ -2164,7 +2164,7 @@ contract FlashLoanReceiver {
             
             tx_hash = deploy_response['result']
             
-            # 等待部署确认
+            # Wait for deployment confirmation
             max_attempts = 20
             receipt = None
             for i in range(max_attempts):
@@ -2180,22 +2180,22 @@ contract FlashLoanReceiver {
             if not receipt or not receipt.get('contractAddress'):
                 raise Exception("Contract deployment failed - no contract address")
             
-            # 获取部署的合约地址
+            # Get deployed contract address
             flashloan_address = receipt['contractAddress']
             flashloan_address = to_checksum_address(flashloan_address)
             
-            # 存储合约地址供后续使用
+            # Store contract address for later use
             self.flashloan_receiver_address = flashloan_address
             
-            # 为闪电贷池设置 USDT 余额（使用 anvil_setStorageAt）
+            # Set USDT balance for flashloan pool (using anvil_setStorageAt)
             usdt_address = '0x55d398326f99059fF775485246999027B3197955'
             pool_deposit_amount = 10000 * 10**18  # 10000 USDT (BSC USDT uses 18 decimals)
             
-            # 直接设置闪电贷合约的 USDT 余额
+            # Directly set USDT balance for flashloan contract
             self._set_erc20_balance_direct(usdt_address, flashloan_address, pool_deposit_amount, balance_slot=1)
             
-            # 验证部署 - 直接查询闪电贷合约的 USDT 余额
-            # 使用 ERC20 balanceOf 而不是合约的 poolBalance，更可靠
+            # Verify deployment - directly query USDT balance of flashloan contract
+            # Use ERC20 balanceOf instead of contract's poolBalance, more reliable
             # balanceOf(address) returns (uint256)
             balance_selector = bytes.fromhex('70a08231')  # balanceOf(address)
             balance_data = '0x' + balance_selector.hex() + encode(['address'], [flashloan_address]).hex()
@@ -2216,11 +2216,11 @@ contract FlashLoanReceiver {
                 print(f"  • Warning: Could not verify pool balance: {e}")
                 print(f"  • Pool initialization may have failed, but continuing...")
             
-            # 预先 approve 闪电贷合约，这样测试账户可以直接调用 executeFlashLoan
-            # Impersonate 测试账户
+            # Pre-approve flashloan contract so test account can directly call executeFlashLoan
+            # Impersonate test account
             self.w3.provider.make_request('anvil_impersonateAccount', [test_addr])
             
-            # Approve 闪电贷合约最大额度 (2^256-1)
+            # Approve max amount for flashloan contract (2^256-1)
             max_approval = 2**256 - 1
             # ERC20 approve function selector: 0x095ea7b3
             # approve(address spender, uint256 amount)
@@ -2239,7 +2239,7 @@ contract FlashLoanReceiver {
             
             if 'result' in approve_response:
                 tx_hash = approve_response['result']
-                # 等待确认
+                # Wait for confirmation
                 for i in range(10):
                     try:
                         receipt_response = self.w3.provider.make_request('eth_getTransactionReceipt', [tx_hash])
@@ -2250,25 +2250,25 @@ contract FlashLoanReceiver {
                     time.sleep(0.3)
                 print(f"  • Test account approved flash loan contract ✅")
             
-            # 停止 impersonate
+            # Stop impersonate
             self.w3.provider.make_request('anvil_stopImpersonatingAccount', [test_addr])
             
         except Exception as e:
             print(f"  • FlashLoan Contract: ❌ Deployment failed - {e}")
             import traceback
             traceback.print_exc()
-            # 设置为 None 表示未部署
+            # Set to None indicating not deployed
             self.flashloan_receiver_address = None
         
         print()
     
     def _deploy_simple_counter(self):
         """
-        部署 SimpleCounter 测试合约
+        Deploy SimpleCounter test contract
         
-        这是一个简单的计数器合约，用于测试基本的合约函数调用
+        This is a simple counter contract for testing basic contract function calls
         """
-        print("✓ 部署 SimpleCounter 测试合约...")
+        print("✓ Deploy SimpleCounter test contract...")
         
         try:
             import solcx
@@ -2276,7 +2276,7 @@ contract FlashLoanReceiver {
             from eth_utils import to_checksum_address
             from eth_abi import encode
             
-            # 简单计数器合约源代码
+            # Simple counter contract source code
             contract_source = """
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.0;
@@ -2293,18 +2293,18 @@ contract SimpleCounter {
         counter = 0;
     }
     
-    // 增加计数器
+    // Increment counter
     function increment() external {
         counter += 1;
         emit CounterIncremented(counter);
     }
     
-    // 获取当前计数器值
+    // Get current counter value
     function getCounter() external view returns (uint256) {
         return counter;
     }
     
-    // 重置计数器（仅owner）
+    // Reset counter (owner only)
     function reset() external {
         require(msg.sender == owner, "Only owner can reset");
         counter = 0;
@@ -2313,9 +2313,9 @@ contract SimpleCounter {
 }
 """
             
-            # 尝试编译合约
+            # Try to compile contract
             try:
-                # 尝试使用已安装的 solc
+                # Try to use installed solc
                 compiled = compile_source(
                     contract_source,
                     output_values=['abi', 'bin'],
@@ -2337,11 +2337,11 @@ contract SimpleCounter {
                 bytecode = contract_interface['bin']
                 abi = contract_interface['abi']
             
-            # 部署合约
+            # Deploy contract
             deployer = self.test_account
             deployer_address = deployer.address
             
-            # 构造部署交易
+            # Construct deployment transaction
             deploy_tx = {
                 'from': deployer_address,
                 'data': '0x' + bytecode,
@@ -2350,11 +2350,11 @@ contract SimpleCounter {
                 'nonce': self.w3.eth.get_transaction_count(deployer_address),
             }
             
-            # 签名并发送交易
+            # Sign and send transaction
             signed_tx = self.w3.eth.account.sign_transaction(deploy_tx, deployer.key)
             tx_hash = self.w3.eth.send_raw_transaction(signed_tx.raw_transaction)
             
-            # 等待交易确认
+            # Wait for transaction confirmation
             receipt = self.w3.eth.wait_for_transaction_receipt(tx_hash, timeout=30)
             
             if receipt['status'] != 1:
@@ -2363,7 +2363,7 @@ contract SimpleCounter {
             contract_address = receipt['contractAddress']
             self.simple_counter_address = contract_address
             
-            # 验证合约部署
+            # Verify contract deployment
             counter_contract = self.w3.eth.contract(address=contract_address, abi=abi)
             initial_counter = counter_contract.functions.getCounter().call()
             
@@ -2380,18 +2380,18 @@ contract SimpleCounter {
     
     def _deploy_donation_box(self):
         """
-        部署 DonationBox 测试合约
+        Deploy DonationBox test contract
         
-        这是一个简单的捐赠盒合约，用于测试带 value 的合约函数调用
+        This is a simple donation box contract for testing contract function calls with value
         """
-        print("✓ 部署 DonationBox 测试合约...")
+        print("✓ Deploy DonationBox test contract...")
         
         try:
             import solcx
             from solcx import compile_source
             from eth_utils import to_checksum_address
             
-            # DonationBox 合约源代码
+            # DonationBox contract source code
             contract_source = """
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.0;
@@ -2442,9 +2442,9 @@ contract DonationBox {
 }
 """
             
-            # 尝试编译合约
+            # Try to compile contract
             try:
-                # 尝试使用已安装的 solc
+                # Try to use installed solc
                 compiled = compile_source(
                     contract_source,
                     output_values=['abi', 'bin'],
@@ -2466,11 +2466,11 @@ contract DonationBox {
                 bytecode = contract_interface['bin']
                 abi = contract_interface['abi']
             
-            # 部署合约
+            # Deploy contract
             deployer = self.test_account
             deployer_address = deployer.address
             
-            # 构造部署交易
+            # Construct deployment transaction
             deploy_tx = {
                 'from': deployer_address,
                 'data': '0x' + bytecode,
@@ -2479,11 +2479,11 @@ contract DonationBox {
                 'nonce': self.w3.eth.get_transaction_count(deployer_address),
             }
             
-            # 签名并发送交易
+            # Sign and send transaction
             signed_tx = self.w3.eth.account.sign_transaction(deploy_tx, deployer.key)
             tx_hash = self.w3.eth.send_raw_transaction(signed_tx.raw_transaction)
             
-            # 等待交易确认
+            # Wait for transaction confirmation
             receipt = self.w3.eth.wait_for_transaction_receipt(tx_hash, timeout=30)
             
             if receipt['status'] != 1:
@@ -2492,7 +2492,7 @@ contract DonationBox {
             contract_address = receipt['contractAddress']
             self.donation_box_address = contract_address
             
-            # 验证合约部署
+            # Verify contract deployment
             donation_contract = self.w3.eth.contract(address=contract_address, abi=abi)
             initial_balance = donation_contract.functions.getBalance().call()
             
@@ -2509,18 +2509,18 @@ contract DonationBox {
     
     def _deploy_message_board(self):
         """
-        部署 MessageBoard 测试合约
+        Deploy MessageBoard test contract
         
-        这是一个简单的留言板合约，用于测试带参数的合约函数调用
+        This is a simple message board contract for testing contract function calls with parameters
         """
-        print("✓ 部署 MessageBoard 测试合约...")
+        print("✓ Deploy MessageBoard test contract...")
         
         try:
             import solcx
             from solcx import compile_source
             from eth_utils import to_checksum_address
             
-            # MessageBoard 合约源代码
+            # MessageBoard contract source code
             contract_source = """
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.0;
@@ -2563,9 +2563,9 @@ contract MessageBoard {
 }
 """
             
-            # 尝试编译合约
+            # Try to compile contract
             try:
-                # 尝试使用已安装的 solc
+                # Try to use installed solc
                 compiled = compile_source(
                     contract_source,
                     output_values=['abi', 'bin'],
@@ -2587,33 +2587,33 @@ contract MessageBoard {
                 bytecode = contract_interface['bin']
                 abi = contract_interface['abi']
             
-            # 部署合约
+            # Deploy contract
             deployer = self.test_account
             deployer_address = deployer.address
             
-            # 构造部署交易
+            # Construct deployment transaction
             deploy_tx = {
                 'from': deployer_address,
                 'data': '0x' + bytecode,
-                'gas': 1000000,  # 增加 gas limit，MessageBoard 有 string 初始化
+                'gas': 1000000,  # Increase gas limit, MessageBoard has string initialization
                 'gasPrice': self.w3.eth.gas_price,
                 'nonce': self.w3.eth.get_transaction_count(deployer_address),
             }
             
-            # 签名并发送交易
+            # Sign and send transaction
             signed_tx = self.w3.eth.account.sign_transaction(deploy_tx, deployer.key)
             tx_hash = self.w3.eth.send_raw_transaction(signed_tx.raw_transaction)
             
-            # 等待交易确认
+            # Wait for transaction confirmation
             receipt = self.w3.eth.wait_for_transaction_receipt(tx_hash, timeout=30)
             
-            # 调试信息
+            # Debug info
             print(f"  • Deployment tx: {tx_hash.hex()}")
             print(f"  • Gas used: {receipt['gasUsed']} / {deploy_tx['gas']}")
             print(f"  • Status: {receipt['status']}")
             
             if receipt['status'] != 1:
-                # 尝试获取 revert reason
+                # Try to get revert reason
                 print(f"  • Trying to get revert reason...")
                 try:
                     self.w3.eth.call(deploy_tx, receipt['blockNumber'])
@@ -2624,7 +2624,7 @@ contract MessageBoard {
             contract_address = receipt['contractAddress']
             self.message_board_address = contract_address
             
-            # 验证合约部署
+            # Verify contract deployment
             message_contract = self.w3.eth.contract(address=contract_address, abi=abi)
             initial_message = message_contract.functions.getMessage().call()
             
@@ -2641,17 +2641,17 @@ contract MessageBoard {
     
     def _deploy_delegate_call_contracts(self):
         """
-        部署 DelegateCall 相关合约:
-        1. Implementation 合约 - 包含实际逻辑
-        2. Proxy 合约 - 使用 delegatecall 转发调用
+        Deploy DelegateCall related contracts:
+        1. Implementation contract - contains actual logic
+        2. Proxy contract - uses delegatecall to forward calls
         """
         from eth_utils import to_checksum_address
         import solcx
         
-        print(f"✓ 部署 DelegateCall 合约...")
+        print(f"✓ Deploying DelegateCall contracts...")
         
         try:
-            # Implementation 合约源码
+            # Implementation contract source
             implementation_source = """
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.0;
@@ -2674,7 +2674,7 @@ contract Implementation {
 }
 """
             
-            # Proxy 合约源码
+            # Proxy contract source
             proxy_source = """
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.0;
@@ -2719,14 +2719,14 @@ contract DelegateCallProxy {
             deployer = self.test_account
             deployer_address = deployer.address
             
-            # 安装 0.8.20 版本的 solc
+            # Install solc 0.8.20
             solc_version = '0.8.20'
             if solc_version not in solcx.get_installed_solc_versions():
                 print(f"  • Installing solc {solc_version}...")
                 solcx.install_solc(solc_version)
             solcx.set_solc_version(solc_version)
             
-            # 编译 Implementation 合约
+            # Compile Implementation contract
             print(f"  • Compiling Implementation contract...")
             impl_compiled = solcx.compile_source(
                 implementation_source,
@@ -2745,7 +2745,7 @@ contract DelegateCallProxy {
             impl_abi = impl_compiled[impl_contract_id]['abi']
             impl_bytecode = impl_compiled[impl_contract_id]['bin']
             
-            # 部署 Implementation 合约
+            # Deploy Implementation contract
             print(f"  • Deploying Implementation contract...")
             impl_deploy_tx = {
                 'from': deployer_address,
@@ -2765,7 +2765,7 @@ contract DelegateCallProxy {
             impl_address = impl_receipt['contractAddress']
             print(f"  • Implementation deployed: {impl_address}")
             
-            # 编译 Proxy 合约
+            # Compile Proxy contract
             print(f"  • Compiling Proxy contract...")
             proxy_compiled = solcx.compile_source(
                 proxy_source,
@@ -2784,11 +2784,11 @@ contract DelegateCallProxy {
             proxy_abi = proxy_compiled[proxy_contract_id]['abi']
             proxy_bytecode = proxy_compiled[proxy_contract_id]['bin']
             
-            # 编码构造函数参数 (implementation address)
+            # Encode constructor parameters (implementation address)
             from eth_abi import encode
             constructor_params = encode(['address'], [to_checksum_address(impl_address)])
             
-            # 部署 Proxy 合约
+            # Deploy Proxy contract
             print(f"  • Deploying Proxy contract...")
             proxy_deploy_tx = {
                 'from': deployer_address,
@@ -2807,16 +2807,16 @@ contract DelegateCallProxy {
             
             proxy_address = proxy_receipt['contractAddress']
             
-            # 保存地址
+            # Save addresses
             self.delegate_call_implementation_address = impl_address
             self.delegate_call_proxy_address = proxy_address
             
-            # 验证合约部署
-            # 读取 implementation 合约的初始值
+            # Verify contract deployment
+            # Read initial value of implementation contract
             impl_contract = self.w3.eth.contract(address=impl_address, abi=impl_abi)
             impl_initial_value = impl_contract.functions.getValue().call()
             
-            # 读取 proxy 合约的初始值 (通过 delegatecall)
+            # Read initial value of proxy contract (via delegatecall)
             proxy_contract = self.w3.eth.contract(address=proxy_address, abi=impl_abi)
             proxy_initial_value = proxy_contract.functions.getValue().call()
             
@@ -2836,18 +2836,18 @@ contract DelegateCallProxy {
     
     def _deploy_fallback_receiver(self):
         """
-        部署 FallbackReceiver 测试合约
+        Deploy FallbackReceiver test contract
         
-        这是一个简单的合约，有 receive() 函数用于接收 BNB
+        This is a simple contract with receive() function to accept BNB
         """
-        print("✓ 部署 FallbackReceiver 测试合约...")
+        print("✓ Deploy FallbackReceiver test contract...")
         
         try:
             import solcx
             from solcx import compile_source
             from eth_utils import to_checksum_address
             
-            # FallbackReceiver 合约源代码
+            # FallbackReceiver contract source code
             contract_source = """
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.0;
@@ -2897,9 +2897,9 @@ contract FallbackReceiver {
 }
 """
             
-            # 尝试编译合约
+            # Try to compile contract
             try:
-                # 尝试使用已安装的 solc
+                # Try to use installed solc
                 compiled = compile_source(
                     contract_source,
                     output_values=['abi', 'bin'],
@@ -2921,11 +2921,11 @@ contract FallbackReceiver {
                 bytecode = contract_interface['bin']
                 abi = contract_interface['abi']
             
-            # 部署合约
+            # Deploy contract
             deployer = self.test_account
             deployer_address = deployer.address
             
-            # 构造部署交易
+            # Construct deployment transaction
             deploy_tx = {
                 'from': deployer_address,
                 'data': '0x' + bytecode,
@@ -2934,11 +2934,11 @@ contract FallbackReceiver {
                 'nonce': self.w3.eth.get_transaction_count(deployer_address),
             }
             
-            # 签名并发送交易
+            # Sign and send transaction
             signed_tx = self.w3.eth.account.sign_transaction(deploy_tx, deployer.key)
             tx_hash = self.w3.eth.send_raw_transaction(signed_tx.raw_transaction)
             
-            # 等待交易确认
+            # Wait for transaction confirmation
             receipt = self.w3.eth.wait_for_transaction_receipt(tx_hash, timeout=30)
             
             if receipt['status'] != 1:
@@ -2947,7 +2947,7 @@ contract FallbackReceiver {
             contract_address = receipt['contractAddress']
             self.fallback_receiver_address = contract_address
             
-            # 验证合约部署
+            # Verify contract deployment
             fallback_contract = self.w3.eth.contract(address=contract_address, abi=abi)
             initial_balance = fallback_contract.functions.getBalance().call()
             initial_count = fallback_contract.functions.getReceivedCount().call()
@@ -2966,9 +2966,9 @@ contract FallbackReceiver {
     
     def _deploy_simple_staking(self):
         """
-        部署 SimpleStaking 合约用于质押测试
+        Deploy SimpleStaking contract for staking tests
         """
-        print("✓ 部署 SimpleStaking 测试合约...")
+        print("✓ Deploying SimpleStaking test contract...")
         try:
             import json
             from solcx import compile_source, install_solc
@@ -2976,16 +2976,16 @@ contract FallbackReceiver {
             # CAKE token address
             cake_address = '0x0E09FaBB73Bd3Ade0a17ECC321fD13a19e81cE82'
             
-            # 读取合约源代码
+            # Read contract source code
             contract_path = os.path.join(os.path.dirname(__file__), 'contracts', 'SimpleStaking.sol')
             with open(contract_path, 'r') as f:
                 contract_source = f.read()
             
-            # 安装并编译合约
+            # Install and compile contract
             try:
                 install_solc('0.8.20')
             except:
-                pass  # 可能已经安装
+                pass  # Might be already installed
             
             compiled_sol = compile_source(
                 contract_source,
@@ -2993,14 +2993,14 @@ contract FallbackReceiver {
                 solc_version='0.8.20'
             )
             
-            # 查找 SimpleStaking 合约（跳过接口）
+            # Find SimpleStaking contract (skip interfaces)
             contract_interface = None
             contract_id = None
             
             print(f"  • Found {len(compiled_sol)} compiled contracts/interfaces")
             for cid, cinterface in compiled_sol.items():
                 print(f"    - {cid}: bytecode length = {len(cinterface.get('bin', ''))}")
-                # 寻找有 bytecode 的合约（跳过空的接口）
+                # Find contract with bytecode (skip empty interfaces)
                 if cinterface.get('bin') and len(cinterface.get('bin', '')) > 10:
                     if 'SimpleStaking' in cid:
                         contract_id = cid
@@ -3013,20 +3013,20 @@ contract FallbackReceiver {
                 print(f"  • Available contracts: {list(compiled_sol.keys())}")
                 raise Exception("SimpleStaking contract not found in compilation output")
             
-            # 获取 bytecode 和 ABI
+            # Get bytecode and ABI
             bytecode = contract_interface.get('bin', '')
             abi = contract_interface.get('abi', [])
             
-            # 确保 bytecode 格式正确
+            # Ensure bytecode format is correct
             if not bytecode.startswith('0x'):
                 bytecode = '0x' + bytecode
             
-            # 构造部署交易 (包含 constructor 参数)
+            # Construct deployment transaction (including constructor args)
             from eth_abi import encode
             from eth_utils import to_checksum_address
             constructor_args = encode(['address'], [to_checksum_address(cake_address)])
             
-            # 组合 bytecode 和 constructor 参数
+            # Combine bytecode and constructor args
             deployment_data = bytecode + constructor_args.hex()
             
             deployer = self.test_account
@@ -3038,16 +3038,16 @@ contract FallbackReceiver {
             deploy_tx = {
                 'from': deployer_address,
                 'data': deployment_data,
-                'gas': 2000000,  # 增加 gas limit
+                'gas': 2000000,  # Increase gas limit
                 'gasPrice': self.w3.eth.gas_price,
                 'nonce': self.w3.eth.get_transaction_count(deployer_address),
             }
             
-            # 签名并发送交易
+            # Sign and send transaction
             signed_tx = self.w3.eth.account.sign_transaction(deploy_tx, deployer.key)
             tx_hash = self.w3.eth.send_raw_transaction(signed_tx.raw_transaction)
             
-            # 等待交易确认
+            # Wait for transaction confirmation
             receipt = self.w3.eth.wait_for_transaction_receipt(tx_hash, timeout=30)
             
             if receipt['status'] != 1:
@@ -3059,7 +3059,7 @@ contract FallbackReceiver {
             print(f"  • SimpleStaking Contract deployed: {contract_address}")
             print(f"  • Staking token: {cake_address} (CAKE)")
             
-            # 设置 CAKE allowance for SimpleStaking
+            # Set CAKE allowance for SimpleStaking
             try:
                 from eth_utils import to_checksum_address
                 from eth_abi import encode
@@ -3068,7 +3068,7 @@ contract FallbackReceiver {
                 test_addr = to_checksum_address(self.test_address)
                 staking_addr = to_checksum_address(contract_address)
                 
-                # Impersonate 测试账户
+                # Impersonate test account
                 self.w3.provider.make_request('anvil_impersonateAccount', [test_addr])
                 
                 # ERC20 approve function selector: 0x095ea7b3
@@ -3077,7 +3077,7 @@ contract FallbackReceiver {
                 approve_amount = 200 * 10**18
                 approve_data = '0x' + approve_selector.hex() + encode(['address', 'uint256'], [staking_addr, approve_amount]).hex()
                 
-                # 发送 approve 交易
+                # Send approve transaction
                 response = self.w3.provider.make_request(
                     'eth_sendTransaction',
                     [{
@@ -3092,7 +3092,7 @@ contract FallbackReceiver {
                 if 'result' in response:
                     tx_hash = response['result']
                     
-                    # 等待确认
+                    # Wait for confirmation
                     max_attempts = 20
                     for i in range(max_attempts):
                         try:
@@ -3103,7 +3103,7 @@ contract FallbackReceiver {
                             pass
                         time.sleep(0.5)
                 
-                # 停止 impersonate
+                # Stop impersonate
                 self.w3.provider.make_request('anvil_stopImpersonatingAccount', [test_addr])
                 
                 print(f"  • CAKE approved for SimpleStaking ✅")
@@ -3122,9 +3122,9 @@ contract FallbackReceiver {
     
     def _deploy_simple_lp_staking(self):
         """
-        部署 SimpleLPStaking 合约用于 LP 代币质押测试
+        Deploy SimpleLPStaking contract for LP token staking tests
         """
-        print("✓ 部署 SimpleLPStaking 测试合约...")
+        print("✓ Deploying SimpleLPStaking test contract...")
         try:
             import json
             from solcx import compile_source, install_solc
@@ -3132,16 +3132,16 @@ contract FallbackReceiver {
             # USDT/BUSD LP token address
             lp_token_address = '0x7EFaEf62fDdCCa950418312c6C91Aef321375A00'
             
-            # 读取合约源代码
+            # Read contract source code
             contract_path = os.path.join(os.path.dirname(__file__), 'contracts', 'SimpleLPStaking.sol')
             with open(contract_path, 'r') as f:
                 contract_source = f.read()
             
-            # 安装并编译合约
+            # Install and compile contract
             try:
                 install_solc('0.8.20')
             except:
-                pass  # 可能已经安装
+                pass  # Might be already installed
             
             compiled_sol = compile_source(
                 contract_source,
@@ -3149,14 +3149,14 @@ contract FallbackReceiver {
                 solc_version='0.8.20'
             )
             
-            # 查找 SimpleLPStaking 合约（跳过接口）
+            # Find SimpleLPStaking contract (skip interfaces)
             contract_interface = None
             contract_id = None
             
             print(f"  • Found {len(compiled_sol)} compiled contracts/interfaces")
             for cid, cinterface in compiled_sol.items():
                 print(f"    - {cid}: bytecode length = {len(cinterface.get('bin', ''))}")
-                # 寻找有 bytecode 的合约（跳过空的接口）
+                # Find contract with bytecode (skip empty interfaces)
                 if cinterface.get('bin') and len(cinterface.get('bin', '')) > 10:
                     if 'SimpleLPStaking' in cid:
                         contract_id = cid
@@ -3169,20 +3169,20 @@ contract FallbackReceiver {
                 print(f"  • Available contracts: {list(compiled_sol.keys())}")
                 raise Exception("SimpleLPStaking contract not found in compilation output")
             
-            # 获取 bytecode 和 ABI
+            # Get bytecode and ABI
             bytecode = contract_interface.get('bin', '')
             abi = contract_interface.get('abi', [])
             
-            # 确保 bytecode 格式正确
+            # Ensure bytecode format is correct
             if not bytecode.startswith('0x'):
                 bytecode = '0x' + bytecode
             
-            # 构造部署交易 (包含 constructor 参数)
+            # Construct deployment transaction (including constructor args)
             from eth_abi import encode
             from eth_utils import to_checksum_address
             constructor_args = encode(['address'], [to_checksum_address(lp_token_address)])
             
-            # 组合 bytecode 和 constructor 参数
+            # Combine bytecode and constructor args
             deployment_data = bytecode + constructor_args.hex()
             
             deployer = self.test_account
@@ -3194,16 +3194,16 @@ contract FallbackReceiver {
             deploy_tx = {
                 'from': deployer_address,
                 'data': deployment_data,
-                'gas': 2000000,  # 增加 gas limit
+                'gas': 2000000,  # Increase gas limit
                 'gasPrice': self.w3.eth.gas_price,
                 'nonce': self.w3.eth.get_transaction_count(deployer_address),
             }
             
-            # 签名并发送交易
+            # Sign and send transaction
             signed_tx = self.w3.eth.account.sign_transaction(deploy_tx, deployer.key)
             tx_hash = self.w3.eth.send_raw_transaction(signed_tx.raw_transaction)
             
-            # 等待交易确认
+            # Wait for transaction confirmation
             receipt = self.w3.eth.wait_for_transaction_receipt(tx_hash, timeout=30)
             
             if receipt['status'] != 1:
@@ -3215,7 +3215,7 @@ contract FallbackReceiver {
             print(f"  • SimpleLPStaking Contract deployed: {contract_address}")
             print(f"  • Staking token: {lp_token_address} (USDT/BUSD LP)")
             
-            # 设置 LP token allowance for SimpleLPStaking
+            # Set LP token allowance for SimpleLPStaking
             try:
                 from eth_utils import to_checksum_address
                 from eth_abi import encode
@@ -3224,7 +3224,7 @@ contract FallbackReceiver {
                 test_addr = to_checksum_address(self.test_address)
                 staking_addr = to_checksum_address(contract_address)
                 
-                # Impersonate 测试账户
+                # Impersonate test account
                 self.w3.provider.make_request('anvil_impersonateAccount', [test_addr])
                 
                 # ERC20 approve function selector: 0x095ea7b3
@@ -3233,7 +3233,7 @@ contract FallbackReceiver {
                 approve_amount = 2 * 10**18
                 approve_data = '0x' + approve_selector.hex() + encode(['address', 'uint256'], [staking_addr, approve_amount]).hex()
                 
-                # 发送 approve 交易
+                # Send approve transaction
                 response = self.w3.provider.make_request(
                     'eth_sendTransaction',
                     [{
@@ -3248,7 +3248,7 @@ contract FallbackReceiver {
                 if 'result' in response:
                     tx_hash = response['result']
                     
-                    # 等待确认
+                    # Wait for confirmation
                     max_attempts = 20
                     for i in range(max_attempts):
                         try:
@@ -3259,7 +3259,7 @@ contract FallbackReceiver {
                             pass
                         time.sleep(0.5)
                 
-                # 停止 impersonate
+                # Stop impersonate
                 self.w3.provider.make_request('anvil_stopImpersonatingAccount', [test_addr])
                 
                 print(f"  • LP token approved for SimpleLPStaking ✅")
@@ -3278,9 +3278,9 @@ contract FallbackReceiver {
     
     def _deploy_simple_reward_pool(self):
         """
-        部署 SimpleRewardPool 合约用于 harvest rewards 测试
+        Deploy SimpleRewardPool contract for harvest rewards tests
         """
-        print("✓ 部署 SimpleRewardPool 测试合约...")
+        print("✓ Deploying SimpleRewardPool test contract...")
         try:
             import json
             import time
@@ -3290,16 +3290,16 @@ contract FallbackReceiver {
             lp_token_address = '0x7EFaEf62fDdCCa950418312c6C91Aef321375A00'  # USDT/BUSD LP
             cake_address = '0x0E09FaBB73Bd3Ade0a17ECC321fD13a19e81cE82'  # CAKE
             
-            # 读取合约源代码
+            # Read contract source code
             contract_path = os.path.join(os.path.dirname(__file__), 'contracts', 'SimpleRewardPool.sol')
             with open(contract_path, 'r') as f:
                 contract_source = f.read()
             
-            # 安装并编译合约
+            # Install and compile contract
             try:
                 install_solc('0.8.20')
             except:
-                pass  # 可能已经安装
+                pass  # Might be already installed
             
             compiled_sol = compile_source(
                 contract_source,
@@ -3307,7 +3307,7 @@ contract FallbackReceiver {
                 solc_version='0.8.20'
             )
             
-            # 查找 SimpleRewardPool 合约（跳过接口）
+            # Find SimpleRewardPool contract (skip interfaces)
             contract_interface = None
             contract_id = None
             
@@ -3326,15 +3326,15 @@ contract FallbackReceiver {
                 print(f"  • Available contracts: {list(compiled_sol.keys())}")
                 raise Exception("SimpleRewardPool contract not found in compilation output")
             
-            # 获取 bytecode 和 ABI
+            # Get bytecode and ABI
             bytecode = contract_interface.get('bin', '')
             abi = contract_interface.get('abi', [])
             
-            # 确保 bytecode 格式正确
+            # Ensure bytecode format is correct
             if not bytecode.startswith('0x'):
                 bytecode = '0x' + bytecode
             
-            # 构造部署交易 (包含 constructor 参数: staking token, reward token)
+            # Construct deployment transaction (including constructor args: staking token, reward token)
             from eth_abi import encode
             from eth_utils import to_checksum_address
             constructor_args = encode(
@@ -3342,7 +3342,7 @@ contract FallbackReceiver {
                 [to_checksum_address(lp_token_address), to_checksum_address(cake_address)]
             )
             
-            # 组合 bytecode 和 constructor 参数
+            # Combine bytecode and constructor args
             deployment_data = bytecode + constructor_args.hex()
             
             deployer = self.test_account
@@ -3359,11 +3359,11 @@ contract FallbackReceiver {
                 'nonce': self.w3.eth.get_transaction_count(deployer_address),
             }
             
-            # 签名并发送交易
+            # Sign and send transaction
             signed_tx = self.w3.eth.account.sign_transaction(deploy_tx, deployer.key)
             tx_hash = self.w3.eth.send_raw_transaction(signed_tx.raw_transaction)
             
-            # 等待交易确认
+            # Wait for transaction confirmation
             receipt = self.w3.eth.wait_for_transaction_receipt(tx_hash, timeout=30)
             
             if receipt['status'] != 1:
@@ -3376,7 +3376,7 @@ contract FallbackReceiver {
             print(f"  • Staking token: {lp_token_address} (USDT/BUSD LP)")
             print(f"  • Reward token: {cake_address} (CAKE)")
             
-            # 给合约转 CAKE 作为奖励池
+            # Transfer CAKE to contract as reward pool
             try:
                 from eth_utils import to_checksum_address
                 from eth_abi import encode
@@ -3385,17 +3385,17 @@ contract FallbackReceiver {
                 test_addr = to_checksum_address(self.test_address)
                 pool_addr = to_checksum_address(contract_address)
                 
-                # 给合约转 100 CAKE 作为奖励池
+                # Transfer 100 CAKE to contract as reward pool
                 reward_pool_amount = 100 * 10**18
                 
-                # Impersonate 测试账户
+                # Impersonate test account
                 self.w3.provider.make_request('anvil_impersonateAccount', [test_addr])
                 
                 # ERC20 transfer function selector: 0xa9059cbb
                 transfer_selector = bytes.fromhex('a9059cbb')
                 transfer_data = '0x' + transfer_selector.hex() + encode(['address', 'uint256'], [pool_addr, reward_pool_amount]).hex()
                 
-                # 发送 transfer 交易
+                # Send transfer transaction
                 response = self.w3.provider.make_request(
                     'eth_sendTransaction',
                     [{
@@ -3419,19 +3419,19 @@ contract FallbackReceiver {
                             pass
                         time.sleep(0.5)
                 
-                # 停止 impersonate
+                # Stop impersonate
                 self.w3.provider.make_request('anvil_stopImpersonatingAccount', [test_addr])
                 
                 print(f"  • Reward pool funded with 100 CAKE ✅")
             except Exception as e:
                 print(f"  • Reward pool funding failed: {e}")
             
-            # 给测试账户质押 LP 代币到奖励池
+            # Stake LP tokens to reward pool for test account
             try:
-                # 质押 0.5 LP tokens
+                # Stake 0.5 LP tokens
                 stake_amount = int(0.5 * 10**18)
                 
-                # 先 approve LP token
+                # Approve LP token first
                 lp_addr = to_checksum_address(lp_token_address)
                 
                 self.w3.provider.make_request('anvil_impersonateAccount', [test_addr])
@@ -3489,12 +3489,12 @@ contract FallbackReceiver {
                             pass
                         time.sleep(0.5)
                 
-                # 停止 impersonate
+                # Stop impersonate
                 self.w3.provider.make_request('anvil_stopImpersonatingAccount', [test_addr])
                 
                 print(f"  • Test account staked 0.5 LP tokens ✅")
                 
-                # 推进时间 100 秒，让奖励累积
+                # Advance time by 100 seconds to accumulate rewards
                 self.w3.provider.make_request('evm_increaseTime', [100])
                 self.w3.provider.make_request('evm_mine', [])
                 
@@ -3515,19 +3515,19 @@ contract FallbackReceiver {
     
     def _setup_rich_account(self):
         """
-        设置富有账户用于 transferFrom 测试
+        Setup rich account for transferFrom tests
         
-        创建一个拥有大量 USDT 的账户，并授权 test_address 可以使用这些代币
+        Create an account with large amount of USDT, and approve test_address to use these tokens
         """
         from eth_utils import to_checksum_address
         from eth_abi import encode
         import time
         
-        print(f"✓ 设置富有账户 (用于 transferFrom 测试)...")
+        print(f"✓ Setting up rich account (for transferFrom tests)...")
         
         try:
-            # 使用固定地址作为富有账户（方便测试和调试）
-            # 这个地址在 Anvil 本地环境中，我们可以直接操作其余额
+            # Use fixed address as rich account (for easier testing and debugging)
+            # This address is in Anvil local environment, we can directly manipulate its balance
             rich_account = Account.create()
             self.rich_address = rich_account.address
             
@@ -3536,7 +3536,7 @@ contract FallbackReceiver {
             rich_addr = to_checksum_address(self.rich_address)
             test_addr = to_checksum_address(self.test_address)
             
-            # 1. 给富有账户设置 USDT 余额 (5000 USDT)
+            # 1. Set USDT balance for rich account (5000 USDT)
             rich_usdt_amount = 5000 * 10**18
             if self._set_erc20_balance_direct(usdt_addr, rich_addr, rich_usdt_amount, balance_slot=1):
                 print(f"  • Rich account: {self.rich_address}")
@@ -3545,8 +3545,8 @@ contract FallbackReceiver {
                 print(f"  • Failed to set rich account balance")
                 return
             
-            # 2. 授权 test_address 可以花费富有账户的 USDT (大额授权 1000 USDT)
-            # 使用 anvil_setStorageAt 直接设置 allowance（更快更可靠）
+            # 2. Approve test_address to spend rich account's USDT (large approval 1000 USDT)
+            # Use anvil_setStorageAt to directly set allowance (faster and more reliable)
             # ERC20 allowance mapping: mapping(address => mapping(address => uint256)) at slot 2 for USDT
             # Storage slot = keccak256(spender_address + keccak256(owner_address + slot))
             from eth_utils import keccak
@@ -3590,11 +3590,11 @@ contract FallbackReceiver {
     
     def _set_balance(self, address: str, balance_wei: int):
         """
-        使用 Anvil cheatcode 设置地址余额
+        Set address balance using Anvil cheatcode
         
         Args:
-            address: 地址
-            balance_wei: 余额 (wei)
+            address: Address
+            balance_wei: Balance (wei)
         """
         from eth_utils import to_checksum_address
         
@@ -3606,23 +3606,23 @@ contract FallbackReceiver {
     
     def get_balance(self, address: str) -> float:
         """
-        获取地址余额
+        Get address balance
         
         Args:
-            address: 地址
+            address: Address
             
         Returns:
-            余额 (BNB)
+            Balance (BNB)
         """
         balance_wei = self.w3.eth.get_balance(address)
         return balance_wei / 10**18
     
     def __enter__(self):
-        """上下文管理器入口"""
+        """Context manager enter"""
         self.start()
         return self
     
     def __exit__(self, exc_type, exc_val, exc_tb):
-        """上下文管理器退出"""
+        """Context manager exit"""
         self.stop()
 

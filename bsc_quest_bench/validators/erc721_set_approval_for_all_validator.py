@@ -1,14 +1,14 @@
 """
 ERC721 Set Approval For All Validator
 
-验证 ERC721 NFT 的 setApprovalForAll 操作是否正确执行。
+Validate ERC721 NFT setApprovalForAll operation execution.
 """
 
 from typing import Dict, Any
 
 
 class ERC721SetApprovalForAllValidator:
-    """验证 ERC721 全局授权操作"""
+    """Validate ERC721 global approval operation"""
     
     def __init__(
         self,
@@ -20,10 +20,10 @@ class ERC721SetApprovalForAllValidator:
         self.operator_address = operator_address.lower()
         self.approved = approved
         
-        # setApprovalForAll(address,bool) 函数选择器
+        # setApprovalForAll(address,bool) function selector
         self.expected_selector = '0xa22cb465'
         
-        # 满分 100 分
+        # Total 100 points
         self.max_score = 100
     
     def validate(
@@ -34,17 +34,17 @@ class ERC721SetApprovalForAllValidator:
         state_after: Dict[str, Any]
     ) -> Dict[str, Any]:
         """
-        验证 ERC721 全局授权交易
+        Validate ERC721 global approval transaction
         
-        检查项：
-        1. 交易成功执行 (30 分)
-        2. 全局授权状态正确设置 (50 分)
-        3. 使用了 setApprovalForAll 函数（正确的 selector）(20 分)
+        Checks:
+        1. Transaction executed successfully (30 points)
+        2. Global approval state correctly set (50 points)
+        3. Used function: setApprovalForAll function (correct selector)(20 points)
         """
         checks = []
         total_score = 0
         
-        # 1. 验证交易成功 (30 分)
+        # 1. Validate transaction success (30 points)
         tx_status = receipt.get('status', 0)
         if tx_status == 1:
             checks.append({
@@ -61,7 +61,7 @@ class ERC721SetApprovalForAllValidator:
                 'message': f'Transaction failed with status: {tx_status}',
                 'score': 30
             })
-            # 如果交易失败，直接返回
+            # If transaction failed, return directly
             return {
                 'passed': False,
                 'score': 0,
@@ -75,7 +75,7 @@ class ERC721SetApprovalForAllValidator:
                 }
             }
         
-        # 2. 验证全局授权状态 (40 分)
+        # 2. Validate global approval state (40 points)
         approved_before = state_before.get('is_approved_for_all', False)
         approved_after = state_after.get('is_approved_for_all', False)
         
@@ -105,7 +105,7 @@ class ERC721SetApprovalForAllValidator:
                 }
             })
         
-        # 3. 验证使用了正确的函数 selector (20 分)
+        # 3. Validate Used function: correct function selector (20 points)
         tx_data = tx.get('data', '') or tx.get('input', '')
         
         if isinstance(tx_data, bytes):
@@ -113,7 +113,7 @@ class ERC721SetApprovalForAllValidator:
         if isinstance(tx_data, str) and tx_data.startswith('0x'):
             tx_data = tx_data[2:]
         
-        # 提取函数 selector (前 4 字节 = 8 个十六进制字符)
+        # Extract function selector (First 4 bytes = 8 hex chars)
         if len(tx_data) >= 8:
             actual_selector = '0x' + tx_data[:8]
             
@@ -148,7 +148,7 @@ class ERC721SetApprovalForAllValidator:
                 'score': 20
             })
         
-        # 汇总结果
+        # Aggregate results
         all_passed = all(check['passed'] for check in checks)
         
         return {

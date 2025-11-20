@@ -1,14 +1,14 @@
 """
 ERC721 Approve Validator
 
-验证 ERC721 NFT 的 approve 操作是否正确执行。
+Validate ERC721 NFT approve operation execution.
 """
 
 from typing import Dict, Any
 
 
 class ERC721ApproveValidator:
-    """验证 ERC721 授权操作"""
+    """Validate ERC721 approval operation"""
     
     def __init__(
         self,
@@ -20,10 +20,10 @@ class ERC721ApproveValidator:
         self.spender_address = spender_address.lower()
         self.token_id = token_id
         
-        # approve(address,uint256) 函数选择器
+        # approve(address,uint256) function selector
         self.expected_selector = '0x095ea7b3'
         
-        # 满分 100 分
+        # Total 100 points
         self.max_score = 100
     
     def validate(
@@ -34,17 +34,17 @@ class ERC721ApproveValidator:
         state_after: Dict[str, Any]
     ) -> Dict[str, Any]:
         """
-        验证 ERC721 授权交易
+        Validate ERC721 approval transaction
         
-        检查项：
-        1. 交易成功执行 (30 分)
-        2. 批准的地址正确设置 (50 分)
-        3. 使用了 approve 函数（正确的 selector）(20 分)
+        Checks:
+        1. Transaction executed successfully (30 points)
+        2. Approved address correctly set (50 points)
+        3. Used function: approve function (correct selector)(20 points)
         """
         checks = []
         total_score = 0
         
-        # 1. 验证交易成功 (30 分)
+        # 1. Validate transaction success (30 points)
         tx_status = receipt.get('status', 0)
         if tx_status == 1:
             checks.append({
@@ -61,7 +61,7 @@ class ERC721ApproveValidator:
                 'message': f'Transaction failed with status: {tx_status}',
                 'score': 30
             })
-            # 如果交易失败，直接返回
+            # If transaction failed, return directly
             return {
                 'passed': False,
                 'score': 0,
@@ -75,7 +75,7 @@ class ERC721ApproveValidator:
                 }
             }
         
-        # 2. 验证批准的地址 (40 分)
+        # 2. Validate approved address (40 points)
         approved_before = state_before.get('nft_approved', '').lower() if state_before.get('nft_approved') else None
         approved_after = state_after.get('nft_approved', '').lower() if state_after.get('nft_approved') else None
         
@@ -105,7 +105,7 @@ class ERC721ApproveValidator:
                 }
             })
         
-        # 3. 验证使用了正确的函数 selector (20 分)
+        # 3. Validate Used function: correct function selector (20 points)
         tx_data = tx.get('data', '') or tx.get('input', '')
         
         if isinstance(tx_data, bytes):
@@ -113,7 +113,7 @@ class ERC721ApproveValidator:
         if isinstance(tx_data, str) and tx_data.startswith('0x'):
             tx_data = tx_data[2:]
         
-        # 提取函数 selector (前 4 字节 = 8 个十六进制字符)
+        # Extract function selector (First 4 bytes = 8 hex chars)
         if len(tx_data) >= 8:
             actual_selector = '0x' + tx_data[:8]
             
@@ -148,7 +148,7 @@ class ERC721ApproveValidator:
                 'score': 20
             })
         
-        # 汇总结果
+        # Aggregate results
         all_passed = all(check['passed'] for check in checks)
         
         return {

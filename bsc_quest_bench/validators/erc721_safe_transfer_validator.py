@@ -1,14 +1,14 @@
 """
 ERC721 Safe Transfer Validator
 
-验证 ERC721 NFT 的安全转账是否正确执行。
+Validate ERC721 NFT safe transfer execution.
 """
 
 from typing import Dict, Any
 
 
 class ERC721SafeTransferValidator:
-    """验证 ERC721 安全转账"""
+    """Validate ERC721 safe transfer"""
     
     def __init__(
         self,
@@ -20,10 +20,10 @@ class ERC721SafeTransferValidator:
         self.to_address = to_address.lower()
         self.token_id = token_id
         
-        # safeTransferFrom(address,address,uint256) 函数选择器
+        # safeTransferFrom(address,address,uint256) function selector
         self.expected_selector = '0x42842e0e'
         
-        # 满分 100 分
+        # Total 100 points
         self.max_score = 100
     
     def validate(
@@ -34,17 +34,17 @@ class ERC721SafeTransferValidator:
         state_after: Dict[str, Any]
     ) -> Dict[str, Any]:
         """
-        验证 ERC721 安全转账交易
+        Validate ERC721 safe transfer transaction
         
-        检查项：
-        1. 交易成功执行
-        2. NFT 所有权正确转移
-        3. 使用了 safeTransferFrom 函数（正确的 selector）
+        Checks:
+        1. Transaction executed successfully
+        2. NFT ownership correctly transferred
+        3. Used function: safeTransferFrom function (correct selector)
         """
         checks = []
         total_score = 0
         
-        # 1. 验证交易成功 (30 分)
+        # 1. Validate transaction success (30 points)
         tx_status = receipt.get('status', 0)
         if tx_status == 1:
             checks.append({
@@ -61,7 +61,7 @@ class ERC721SafeTransferValidator:
                 'message': f'Transaction failed with status: {tx_status}',
                 'score': 30
             })
-            # 如果交易失败，直接返回
+            # If transaction failed, return directly
             return {
                 'passed': False,
                 'score': 0,
@@ -75,7 +75,7 @@ class ERC721SafeTransferValidator:
                 }
             }
         
-        # 2. 验证 NFT 所有权转移 (40 分)
+        # 2. Validate NFT ownership transfer (40 points)
         owner_before = state_before.get('nft_owner', '').lower() if state_before.get('nft_owner') else None
         owner_after = state_after.get('nft_owner', '').lower() if state_after.get('nft_owner') else None
         
@@ -105,7 +105,7 @@ class ERC721SafeTransferValidator:
                 }
             })
         
-        # 3. 验证使用了正确的函数 selector (30 分)
+        # 3. Validate Used function: correct function selector (30 points)
         tx_data = tx.get('data', '') or tx.get('input', '')
         
         if isinstance(tx_data, bytes):
@@ -113,7 +113,7 @@ class ERC721SafeTransferValidator:
         if isinstance(tx_data, str) and tx_data.startswith('0x'):
             tx_data = tx_data[2:]
         
-        # 提取函数 selector (前 4 字节 = 8 个十六进制字符)
+        # Extract function selector (First 4 bytes = 8 hex chars)
         if len(tx_data) >= 8:
             actual_selector = '0x' + tx_data[:8]
             
@@ -149,7 +149,7 @@ class ERC721SafeTransferValidator:
                 'score': 30
             })
         
-        # 汇总结果
+        # Aggregate results
         all_passed = all(check['passed'] for check in checks)
         
         return {

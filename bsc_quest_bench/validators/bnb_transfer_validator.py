@@ -1,7 +1,7 @@
 """
-BNB Transfer Validator - BNB 转账验证器
+BNB Transfer Validator
 
-验证 BNB 原生代币转账交易的正确性
+Validate correctness of BNB native token transfer transaction
 """
 
 from typing import Dict, Any, List
@@ -33,16 +33,16 @@ class BNBTransferValidator:
         state_after: Dict[str, Any]
     ) -> Dict[str, Any]:
         """
-        验证交易
+        Validate transaction
         
         Args:
-            tx: 交易对象
-            receipt: 交易回执
-            state_before: 交易前状态
-            state_after: 交易后状态
+            tx: Transaction object
+            receipt: Transaction receipt
+            state_before: State before transaction
+            state_after: State after transaction
             
         Returns:
-            验证结果字典
+            Validation result dictionary
         """
         checks = []
         score = 0
@@ -130,10 +130,10 @@ class BNBTransferValidator:
         if balance_correct:
             score += 10
         
-        # 判断是否通过
+        # Determine if Passed
         passed = all(check['passed'] for check in checks)
         
-        # 生成反馈
+        # Generate Feedback
         feedback = self._generate_feedback(checks, score, passed)
         
         return {

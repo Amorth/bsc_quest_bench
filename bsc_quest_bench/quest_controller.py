@@ -1,11 +1,11 @@
 """
-BSC Quest Controller - 控制层
+BSC Quest Controller - Control Layer
 
-负责:
-1. 管理 LLM 输入输出
-2. 协调各层交互 (环境层、执行层、验证器)
-3. 提取 TypeScript 代码块
-4. 保存评分指标
+Responsibilities:
+1. Manage LLM input/output
+2. Coordinate layer interactions (Environment, Executor, Validator)
+3. Extract TypeScript code blocks
+4. Save scoring metrics
 """
 
 import json
@@ -27,7 +27,7 @@ from bsc_quest_bench.parameter_generator import ParameterGenerator, format_param
 
 
 class QuestController:
-    """Quest 控制器 - 协调单轮交易生成评估"""
+    """Quest Controller - Coordinate single round transaction generation evaluation"""
     
     def __init__(
         self,
@@ -43,19 +43,19 @@ class QuestController:
             naive_mode: bool = False
     ):
         """
-        初始化控制器
+        Initialize controller
         
         Args:
-            model_name: LLM 模型名称 (例如: "anthropic/claude-sonnet-4", "gpt-4")
-            question_path: 问题配置文件路径
-            validator_class: 验证器类
-            api_key: API key (如果为 None 则使用环境变量)
-            base_url: 自定义 API base URL (可选)
-            fork_url: BSC RPC URL (默认: testnet)
-            test_mode: 测试模式，使用预先编写的代码而不是调用 LLM
-            test_code_path: 测试代码路径（仅测试模式有效）
-            env: 可选的已存在的 QuestEnvironment 实例（用于复用 Anvil）
-            naive_mode: Naive 模式，在提示词中包含问题的 description 字段（默认 False，用于控制难度）
+            model_name: LLM model name (e.g., "anthropic/claude-sonnet-4", "gpt-4")
+            question_path: Path to question configuration file
+            validator_class: Validator class
+            api_key: API key (use environment variable if None)
+            base_url: Custom API base URL (optional)
+            fork_url: BSC RPC URL (default: testnet)
+            test_mode: Test mode, use pre-written code instead of calling LLM
+            test_code_path: Path to test code (only valid in test mode)
+            env: Optional existing QuestEnvironment instance (for reusing Anvil)
+            naive_mode: Naive mode, include question description in prompt (default False, controls difficulty)
         """
         self.model_name = model_name
         self.question_path = question_path
@@ -65,25 +65,25 @@ class QuestController:
         self.fork_url = fork_url
         self.test_mode = test_mode
         self.test_code_path = test_code_path
-        self.reuse_env = env  # 可复用的环境实例
-        self.naive_mode = naive_mode  # 是否使用 Naive 模式
+        self.reuse_env = env  # Reusable environment instance
+        self.naive_mode = naive_mode  # Whether to use Naive mode
         
-        # 加载系统配置
+        # Load system config
         self.system_config = self._load_system_config()
         
-        # 加载问题配置
+        # Load question config
         self.question = self._load_question()
         
-        # 初始化参数生成器
+        # Initialize parameter generator
         self.param_generator = ParameterGenerator()
         
-        # 生成随机参数值
+        # Generate random parameter values
         self.generated_params = self._generate_parameters()
         
-        # 初始化 LLM
+        # Initialize LLM
         self.llm = self._init_llm(model_name, api_key, base_url)
         
-        # 存储结果
+        # Store results
         self.result = {
             'question_id': self.question['id'],
             'model_name': model_name,
@@ -168,14 +168,14 @@ class QuestController:
     
     def _regenerate_env_parameters(self, env):
         """
-        重新生成需要环境的参数（method='from_env'）
+        Regenerate parameters requiring environment (method='from_env')
         
         Args:
-            env: QuestEnvironment实例
+            env: QuestEnvironment instance
         """
         params_config = self.question.get('parameters', {})
         
-        # 检查是否有需要从环境获取的参数
+        # Check if any parameters need to be fetched from environment
         has_env_params = False
         env_param_names = []
         for param_name, param_config in params_config.items():
@@ -187,24 +187,24 @@ class QuestController:
         if not has_env_params:
             return
         
-        print(f"🔄 重新生成环境参数: {', '.join(env_param_names)}")
+        print(f"🔄 Regenerating environment parameters: {', '.join(env_param_names)}")
         
-        # 重新创建带环境的参数生成器
+        # Recreate parameter generator with environment
         env_param_generator = ParameterGenerator(environment=env)
         
-        # 重新生成所有参数
+        # Regenerate all parameters
         new_params = env_param_generator.generate_parameters(params_config)
         
-        # 显示更新的参数
+        # Display updated parameters
         for param_name in env_param_names:
             old_value = self.generated_params.get(param_name, 'N/A')
             new_value = new_params.get(param_name, 'N/A')
             print(f"  • {param_name}: {old_value[:10]}... → {new_value}")
         
-        # 更新参数
+        # Update parameters
         self.generated_params.update(new_params)
         
-        # 重新生成自然语言提示
+        # Regenerate natural language prompt
         self.result['natural_language_prompt'] = self._generate_natural_language_prompt()
         print()
     
@@ -215,41 +215,41 @@ class QuestController:
         base_url: Optional[str] = None
     ):
         """
-        初始化 LLM 客户端
+        Initialize LLM client
         
         Args:
-            model_name: 模型名称
+            model_name: Model name
             api_key: API key
-            base_url: 自定义 API base URL
+            base_url: Custom API base URL
             
         Returns:
-            LLM 客户端实例
+            LLM client instance
         """
         if not model_name:
-            raise ValueError("模型名称不能为空")
+            raise ValueError("Model name cannot be empty")
         
         llm_kwargs = {'model': model_name, 'temperature': 0.7}
         
-        # 优先级 1: 自定义 base_url
+        # Priority 1: Custom base_url
         if base_url:
-            print(f"🔄 使用自定义 API: {base_url}")
-            print(f"   模型: {model_name}")
+            print(f"🔄 Using custom API: {base_url}")
+            print(f"   Model: {model_name}")
             if api_key:
                 llm_kwargs['api_key'] = api_key
             llm_kwargs['base_url'] = base_url
             return ChatOpenAI(**llm_kwargs)
         
-        # 优先级 2: OpenRouter (模型名包含 '/')
+        # Priority 2: OpenRouter (model name contains '/')
         if '/' in model_name:
-            print(f"🔄 使用 OpenRouter")
-            print(f"   模型: {model_name}")
+            print(f"🔄 Using OpenRouter")
+            print(f"   Model: {model_name}")
             if api_key:
                 llm_kwargs['api_key'] = api_key
                 if not api_key.startswith('sk-or-v1-'):
-                    print(f"⚠️  警告: OpenRouter API key 通常以 'sk-or-v1-' 开头")
-                    print(f"   您的 key 开头: {api_key[:10]}...")
+                    print(f"⚠️  Warning: OpenRouter API key usually starts with 'sk-or-v1-'")
+                    print(f"   Your key starts with: {api_key[:10]}...")
             else:
-                print(f"⚠️  警告: 未提供 OpenRouter API key")
+                print(f"⚠️  Warning: OpenRouter API key not provided")
             
             llm_kwargs['base_url'] = "https://openrouter.ai/api/v1"
             llm_kwargs['default_headers'] = {
@@ -258,7 +258,7 @@ class QuestController:
             }
             return ChatOpenAI(**llm_kwargs)
         
-        # 优先级 3: 标准 provider
+        # Priority 3: Standard provider
         if 'gpt' in model_name.lower() or 'openai' in model_name.lower():
             if api_key:
                 llm_kwargs['openai_api_key'] = api_key
@@ -306,11 +306,11 @@ class QuestController:
         This keeps the prompt minimal and tests the LLM's pure understanding ability.
         Naive mode (naive_mode=True) includes detailed implementation guidance.
         """
-        # Part 1: Role prompt (支持数组或字符串格式)
+        # Part 1: Role prompt (supports list or string format)
         role_prompt_raw = self.system_config['role_prompt']
         role_prompt = '\n'.join(role_prompt_raw) if isinstance(role_prompt_raw, list) else role_prompt_raw
         
-        # Part 2: Environment description (支持数组或字符串格式)
+        # Part 2: Environment description (supports list or string format)
         env_description_raw = self.system_config['environment_description']
         env_description = '\n'.join(env_description_raw) if isinstance(env_description_raw, list) else env_description_raw
         
@@ -334,13 +334,13 @@ class QuestController:
     
     def extract_code_blocks(self, text: str) -> List[str]:
         """
-        提取代码块
+        Extract code blocks
         
         Args:
-            text: LLM 响应文本
+            text: LLM response text
             
         Returns:
-            代码块列表
+            List of code blocks
         """
         pattern = r'```(?:typescript|ts|javascript|js)?\s*\n(.*?)```'
         matches = re.findall(pattern, text, re.DOTALL)
@@ -348,22 +348,22 @@ class QuestController:
     
     def _load_test_code(self) -> str:
         """
-        加载测试代码并替换参数占位符
+        Load test code and replace parameter placeholders
         
         Returns:
-            替换参数后的代码
+            Code after parameter replacement
         """
         if not self.test_code_path:
             raise ValueError("Test mode enabled but no test_code_path provided")
         
-        # 读取测试代码
+        # Read test code
         with open(self.test_code_path, 'r', encoding='utf-8') as f:
             code = f.read()
         
-        # 替换参数占位符
+        # Replace parameter placeholders
         for param_name, param_value in self.generated_params.items():
             placeholder = f"{{{{{param_name}}}}}"  # {{param_name}}
-            # 使用 format_parameter_value 进行类型感知的格式化
+            # Use format_parameter_value for type-aware formatting
             param_config = self.question['parameters'][param_name]
             formatted_value = format_parameter_value(param_value, param_config)
             code = code.replace(placeholder, formatted_value)
@@ -372,16 +372,16 @@ class QuestController:
     
     def _save_code_to_temp_file(self, code: str) -> str:
         """
-        保存代码到临时文件
+        Save code to temporary file
         
         Args:
-            code: TypeScript 代码
+            code: TypeScript code
             
         Returns:
-            临时文件路径
+            Temporary file path
         """
-        # 使用 skill_runner/temp/ 目录而不是系统 /tmp/
-        # 这样 Bun 能正确解析 node_modules
+        # Use skill_runner/temp/ directory instead of system /tmp/
+        # So Bun can correctly resolve node_modules
         timestamp = int(time.time() * 1000)
         project_root = Path(__file__).parent.parent
         temp_dir = project_root / 'bsc_quest_bench' / 'skill_runner' / 'temp'
@@ -396,33 +396,33 @@ class QuestController:
     
     async def run(self) -> Dict[str, Any]:
         """
-        运行单轮评估
+        Run single round evaluation
         
         Returns:
-            评估结果字典
+            Evaluation result dictionary
         """
         print("="*80)
-        print("BSC Quest Bench - 单轮评估")
+        print("BSC Quest Bench - Single Round Evaluation")
         print("="*80)
-        print(f"问题ID: {self.question['id']}")
-        print(f"模型: {self.model_name}")
-        print(f"难度: {self.question['difficulty']}")
+        print(f"Question ID: {self.question['id']}")
+        print(f"Model: {self.model_name}")
+        print(f"Difficulty: {self.question['difficulty']}")
         print("="*80)
         print()
         
         self.result['start_time'] = datetime.now().isoformat()
         
-        # 1. 启动或复用环境
-        should_stop_env = False  # 标记是否需要在 finally 中停止环境
+        # 1. Start or reuse environment
+        should_stop_env = False  # Flag to stop environment in finally
         if self.reuse_env:
-            print("🔧 复用已存在的环境...")
+            print("🔧 Reusing existing environment...")
             env = self.reuse_env
             env_info = {
                 'rpc_url': f'http://127.0.0.1:{env.anvil_port}',
                 'chain_id': env.chain_id,
                 'test_address': env.test_address,
                 'test_private_key': env.test_account.key.hex(),
-                # 从环境对象中获取已部署的合约地址
+                # Get deployed contract addresses from environment object
                 'simple_staking_address': getattr(env, 'simple_staking_address', None),
                 'simple_lp_staking_address': getattr(env, 'simple_lp_staking_address', None),
                 'simple_reward_pool_address': getattr(env, 'simple_reward_pool_address', None),
@@ -440,17 +440,17 @@ class QuestController:
             }
             print()
         else:
-            print("🔧 启动新环境...")
+            print("🔧 Starting new environment...")
             env = QuestEnvironment(fork_url=self.fork_url)
             env_info = env.start()
-            should_stop_env = True  # 新启动的环境需要在 finally 中停止
+            should_stop_env = True  # Newly started environment needs to be stopped in finally
             print()
         
-        # 1.5 重新生成需要环境的参数（如 from_env）
+        # 1.5 Regenerate parameters requiring environment (e.g. from_env)
         self._regenerate_env_parameters(env)
         
         try:
-            # 2. 显示生成的参数
+            # 2. Display generated parameters
             print("📝 Generated Natural Language Prompt:")
             if not self.test_mode:
                 system_prompt = self._generate_system_prompt()
@@ -463,9 +463,9 @@ class QuestController:
                 print(f"   - {param_name}: {param_value}")
             print()
             
-            # 3. 获取代码：测试模式或 LLM 生成
+            # 3. Get code: Test mode or LLM generation
             if self.test_mode:
-                # 测试模式：从文件加载代码
+                # Test mode: Load code from file
                 print("🧪 TEST MODE: Loading code from test file...")
                 code = self._load_test_code()
                 self.result['llm_response'] = "[TEST MODE] Code loaded from file"
@@ -473,7 +473,7 @@ class QuestController:
                 print(f"✅ Test code loaded from: {self.test_code_path}")
                 print()
             else:
-                # 正常模式：调用 LLM
+                # Normal mode: Call LLM
                 print("🤖 Calling LLM to generate code...")
                 messages = [
                     SystemMessage(content=system_prompt)
@@ -485,37 +485,37 @@ class QuestController:
                 print(f"✅ LLM response received ({len(response.content)} characters)")
                 print()
                 
-                # 4. 提取代码块
-                print("📝 提取代码块...")
+                # 4. Extract code blocks
+                print("📝 Extracting code blocks...")
                 code_blocks = self.extract_code_blocks(response.content)
                 
                 if not code_blocks:
-                    error_msg = "未找到 TypeScript 代码块"
+                    error_msg = "TypeScript code block not found"
                     print(f"❌ {error_msg}")
                     self.result['error'] = error_msg
                     return self.result
                 
                 code = code_blocks[0]
                 self.result['extracted_code'] = code
-                print(f"✅ 提取到 {len(code_blocks)} 个代码块")
+                print(f"✅ Extracted {len(code_blocks)} code blocks")
                 print()
             
             print("─"*80)
-            print("提取的代码:")
+            print("Extracted Code:")
             print("─"*80)
             print(code)
             print("─"*80)
             print()
             
-            # 5. 执行代码生成交易对象
-            print("⚙️  执行 TypeScript 代码...")
+            # 5. Execute code to generate transaction object
+            print("⚙️  Executing TypeScript code...")
             from .skill_manager.ts_skill_manager import TypeScriptSkillManager
             
             skill_manager = TypeScriptSkillManager(use_bun=True)
             code_file = self._save_code_to_temp_file(code)
             
             try:
-                # 构造部署的合约字典
+                # Construct deployed contracts dictionary
                 deployed_contracts = {
                     'simple_staking': env_info.get('simple_staking_address'),
                     'simple_lp_staking': env_info.get('simple_lp_staking_address'),
@@ -531,7 +531,7 @@ class QuestController:
                     'fallback_receiver': env_info.get('fallback_receiver_address'),
                     'rich_address': env_info.get('rich_address')  # For transferFrom tests
                 }
-                # 移除 None 值
+                # Remove None values
                 deployed_contracts = {k: v for k, v in deployed_contracts.items() if v is not None}
                 
                 tx_result = skill_manager.execute_skill(
@@ -542,13 +542,13 @@ class QuestController:
                 )
                 
                 if not tx_result.get('success'):
-                    error_msg = tx_result.get('error', '未知错误')
-                    print(f"❌ TypeScript 执行失败: {error_msg}")
+                    error_msg = tx_result.get('error', 'Unknown error')
+                    print(f"❌ TypeScript execution failed: {error_msg}")
                     self.result['error'] = error_msg
                     return self.result
                 
                 tx = tx_result['tx_object']
-                print(f"✅ 交易对象生成成功")
+                print(f"✅ Transaction object generated successfully")
                 print(f"   To: {tx.get('to')}")
                 print(f"   Value: {tx.get('value')}")
                 print()
@@ -558,17 +558,17 @@ class QuestController:
                 if os.path.exists(code_file):
                     os.unlink(code_file)
             
-            # 6. 创建执行器并执行交易
-            print("🔗 执行交易...")
+            # 6. Create executor and execute transaction
+            print("🔗 Executing transaction...")
             executor = QuestExecutor(
                 w3=env.w3,
                 private_key=env_info['test_private_key']
             )
             
-            # 创建验证器
+            # Create validator
             validator = self._create_validator(self.generated_params)
             
-            # 准备 token 相关参数（如果是 ERC20 操作或 WBNB 操作）
+            # Prepare token related parameters (if ERC20 or WBNB operation)
             token_address = None
             target_address_for_token = None
             token_out_address = None
@@ -586,7 +586,7 @@ class QuestController:
             implementation_address = None
             expected_value = None
             
-            # 特殊处理：erc20_transferfrom_basic 需要在 erc20_operations 之前检查
+            # Special handling: erc20_transferfrom_basic needs to be checked before erc20_operations
             if self.question.get('id') == 'erc20_transferfrom_basic':
                 # TransferFrom: track from_address balance, to_address balance, and allowance
                 token_address = self.generated_params.get('token_address')
@@ -706,10 +706,10 @@ class QuestController:
                         token_address
                     )
             elif self.question.get('id') in ['wbnb_deposit', 'wbnb_withdraw']:
-                # WBNB deposit/withdraw 需要查询 WBNB token 余额
+                # WBNB deposit/withdraw needs to query WBNB token balance
                 token_address = self.generated_params.get('wbnb_address')
             elif self.question.get('subcategory') == 'flashloan':
-                # 闪电贷需要查询 token 余额（用于验证费用支付）
+                # Flashloan needs to query token balance (for fee payment verification)
                 token_address = self.generated_params.get('token_address')
             elif self.question.get('subcategory') == 'staking_farming':
                 # Staking/Farming operations need to track token balance, allowance, and staked amount
@@ -743,34 +743,34 @@ class QuestController:
                     token_address = self.generated_params.get('reward_token_address')  # CAKE token (for verification that it doesn't increase)
                     pool_address = self.generated_params.get('pool_address')  # SimpleRewardPool
             elif self.question.get('id') == 'contract_call_simple':
-                # SimpleCounter 合约需要查询 counter 值
+                # SimpleCounter contract needs to query counter value
                 counter_contract_address = self.generated_params.get('contract_address')
             elif self.question.get('id') == 'contract_call_with_params':
-                # MessageBoard 合约需要查询 message 值
+                # MessageBoard contract needs to query message value
                 message_board_contract_address = self.generated_params.get('contract_address')
             elif self.question.get('subcategory') == 'delegate_call':
-                # DelegateCall 需要查询 proxy 和 implementation 的值
+                # DelegateCall needs to query proxy and implementation values
                 proxy_address = self.generated_params.get('proxy_address')
                 implementation_address = self.generated_params.get('implementation_address')
                 expected_value = self.generated_params.get('value')
             elif self.question.get('subcategory') == 'nft_operations':
-                # NFT 操作需要查询 NFT 所有权
+                # NFT operations need to query NFT ownership
                 nft_address = self.generated_params.get('nft_address')
                 nft_token_id = self.generated_params.get('token_id')
                 operator_address = self.generated_params.get('operator_address')
                 
-                # 根据问题 ID 判断 NFT 类型
+                # Determine NFT type based on question ID
                 question_id = self.question.get('id', '')
                 if 'erc1155' in question_id:
                     nft_type = 'erc1155'
-                    # ERC1155 transfer 操作还需要查询目标地址的余额
+                    # ERC1155 transfer operation also needs to query target address balance
                     target_address_for_token = self.generated_params.get('to_address')
                 elif 'erc721' in question_id:
                     nft_type = 'erc721'
                 else:
                     nft_type = None
             
-            # 执行交易
+            # Execute transaction
             # Get requires_contract from metadata
             requires_contract = self.question.get('metadata', {}).get('requires_contract', False)
             
@@ -802,40 +802,40 @@ class QuestController:
                 self.result['validation_result'] = execution_result['validation']
                 print()
                 print("="*80)
-                print("📊 评估结果")
+                print("📊 Evaluation Result")
                 print("="*80)
-                print(f"✅ 交易执行成功")
-                print(f"验证通过: {'✅' if execution_result['validation']['passed'] else '❌'}")
-                print(f"得分: {execution_result['validation']['score']}/{execution_result['validation']['max_score']}")
+                print(f"✅ Transaction executed successfully")
+                print(f"Validation Passed: {'✅' if execution_result['validation']['passed'] else '❌'}")
+                print(f"Score: {execution_result['validation']['score']}/{execution_result['validation']['max_score']}")
                 print("="*80)
             else:
-                error_msg = execution_result.get('error', '未知错误')
-                print(f"❌ 交易执行失败: {error_msg}")
+                error_msg = execution_result.get('error', 'Unknown error')
+                print(f"❌ Transaction execution failed: {error_msg}")
                 self.result['error'] = error_msg
             
         finally:
-            # 清理环境（仅在新启动的环境时停止）
+            # Cleanup environment (only stop if newly started)
             if should_stop_env:
-                print("\n🧹 清理环境...")
+                print("\n🧹 Cleaning up environment...")
                 env.stop()
             else:
-                print("\n✓ 环境已复用，保持运行状态")
+                print("\n✓ Environment reused, keeping running")
         
         self.result['end_time'] = datetime.now().isoformat()
         return self.result
     
     def _create_validator(self, params: Dict[str, Any]):
         """
-        创建验证器实例
+        Create validator instance
         
         Args:
             params: Generated parameters for this test case
             
         Returns:
-            验证器实例
+            Validator instance
         """
-        # validator_class 应该是一个工厂函数
-        # 它接受 params 并返回验证器实例
+        # validator_class should be a factory function
+        # It accepts params and returns a validator instance
         if callable(self.validator_class):
             return self.validator_class(**params)
         else:
@@ -843,10 +843,10 @@ class QuestController:
     
     def save_result(self, output_path: str):
         """
-        保存结果到文件
+        Save results to file
         
         Args:
-            output_path: 输出文件路径
+            output_path: Output file path
         """
         output_file = Path(output_path)
         output_file.parent.mkdir(parents=True, exist_ok=True)
@@ -854,5 +854,5 @@ class QuestController:
         with open(output_file, 'w', encoding='utf-8') as f:
             json.dump(self.result, f, indent=2, ensure_ascii=False)
         
-        print(f"\n✅ 结果已保存到: {output_path}")
+        print(f"\n✅ Results saved to: {output_path}")
 

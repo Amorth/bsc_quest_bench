@@ -13,7 +13,7 @@ from typing import Dict, Any, Optional
 
 
 class TypeScriptSkillManager:
-    """TypeScript 代码执行管理器"""
+    """TypeScript Code Execution Manager"""
     
     def __init__(
         self,
@@ -21,11 +21,11 @@ class TypeScriptSkillManager:
         bun_path: Optional[str] = None
     ):
         """
-        初始化管理器
+        Initialize manager
         
         Args:
-            use_bun: 是否使用 Bun (推荐)
-            bun_path: Bun 可执行文件路径 (可选)
+            use_bun: Whether to use Bun (recommended)
+            bun_path: Bun executable path (optional)
         """
         self.use_bun = use_bun
         
@@ -36,7 +36,7 @@ class TypeScriptSkillManager:
         else:
             self.runtime = 'node'
         
-        # 使用本地 skill_runner
+        # Use local skill_runner
         quest_bench_root = Path(__file__).parent.parent
         self.runner_script = str(quest_bench_root / 'skill_runner' / 'runBscSkill.ts')
         
@@ -47,7 +47,7 @@ class TypeScriptSkillManager:
             )
     
     def _find_bun_path(self) -> str:
-        """查找 Bun 可执行文件"""
+        """Find Bun executable"""
         bun_paths = [
             os.path.expanduser('~/.bun/bin/bun'),
             '/usr/local/bin/bun',
@@ -78,17 +78,17 @@ class TypeScriptSkillManager:
         timeout: int = 60000
     ) -> Dict[str, Any]:
         """
-        执行 TypeScript 代码
+        Execute TypeScript code
         
         Args:
-            code_file: TypeScript 文件路径
+            code_file: TypeScript file path
             provider_url: RPC URL
-            agent_address: 测试地址
-            deployed_contracts: 已部署合约
-            timeout: 超时时间 (毫秒)
+            agent_address: Test address
+            deployed_contracts: Deployed contracts
+            timeout: Timeout (milliseconds)
             
         Returns:
-            执行结果字典
+            Execution result dictionary
         """
         start_time = time.time()
         
@@ -122,7 +122,7 @@ class TypeScriptSkillManager:
             
             execution_time = time.time() - start_time
             
-            # 打印 STDERR 以显示调试日志
+            # Print STDERR for debug logs
             if result.stderr:
                 print(f"\n🔍 [DEBUG] TypeScript STDERR output:")
                 print("─" * 80)

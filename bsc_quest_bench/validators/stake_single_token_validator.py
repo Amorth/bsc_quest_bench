@@ -1,11 +1,11 @@
 """
 Validator for stake_single_token operation
 
-验证单币质押操作:
-1. 交易成功 (25%)
-2. Token 授权 (20%)
-3. Token 余额减少 (25%)
-4. 质押余额增加 (30%)
+Validate single token staking operation:
+1. Transaction success (25%)
+2. Token approval (20%)
+3. Token balance decrease (25%)
+4. Staked balance increase (30%)
 """
 
 from typing import Dict, Any, List
