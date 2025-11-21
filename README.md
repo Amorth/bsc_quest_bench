@@ -767,10 +767,10 @@ See `docs/prompt_design_philosophy.md` for guidelines.
 
 ## Documentation
 
-- 📘 [Prompt Design Philosophy](docs/prompt_design_philosophy.md) - Detailed design principles
+- 📘 [Prompt Design Philosophy](doc/prompt_design_philosophy.md) - Detailed design principles
 - 📗 [Architecture Guide](bsc_quest_bench/ARCHITECTURE.md) - System architecture
 - 📙 [Changelog](bsc_quest_bench/CHANGELOG.md) - Version history
-- 📕 [Query Operations Design](docs/query_operations_design.md) - Query operations specification
+- 📕 [Query Operations Design](doc/query_operations_design.md) - Query operations specification
 
 ## License
 
