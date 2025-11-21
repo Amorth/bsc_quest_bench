@@ -20,6 +20,11 @@ results/
 tools/
 test_transactions/
 
+__pycache__/
+*.py[cod]
+*$py.class
+
+
 # IDE
 .idea
 .vscode
