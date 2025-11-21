@@ -99,7 +99,24 @@ VALIDATOR_REGISTRY = {
         'unstake_lp_tokens': UnstakeLPTokensValidator,
         'harvest_rewards': HarvestRewardsValidator,
         'emergency_withdraw': EmergencyWithdrawValidator,
-        'erc20_transferfrom_basic': ERC20TransferFromBasicValidator
+        'erc20_transferfrom_basic': ERC20TransferFromBasicValidator,
+        'query_bnb_balance': QueryBNBBalanceValidator,
+        'query_erc20_balance': QueryERC20BalanceValidator,
+        'query_erc20_allowance': QueryERC20AllowanceValidator,
+        'query_nft_approval_status': QueryNFTApprovalStatusValidator,
+        'query_pair_reserves': QueryPairReservesValidator,
+        'query_swap_output_amount': QuerySwapOutputAmountValidator,
+        'query_swap_input_amount': QuerySwapInputAmountValidator,
+        'query_staked_amount': QueryStakedAmountValidator,
+        'query_pending_rewards': QueryPendingRewardsValidator,
+        'query_token_metadata': QueryTokenMetadataValidator,
+        'query_token_total_supply': QueryTokenTotalSupplyValidator,
+        'query_nft_owner': QueryNFTOwnerValidator,
+        'query_nft_token_uri': QueryNFTTokenURIValidator,
+        'query_nft_balance': QueryNFTBalanceValidator,
+        'query_current_block_number': QueryCurrentBlockNumberValidator,
+        'query_gas_price': QueryGasPriceValidator,
+        'query_transaction_count_nonce': QueryTransactionCountNonceValidator
 }
 
 def create_validator_factory(question_id: str):

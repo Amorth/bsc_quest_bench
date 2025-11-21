@@ -77,6 +77,11 @@ class QuestExecutor:
         print("⚙️  Starting transaction execution...")
         print("="*80)
         
+        # Check if this is a query operation (returns query_result instead of transaction)
+        if 'query_result' in tx:
+            print("🔍 Detected query operation (no transaction required)")
+            return self._handle_query_operation(tx, validator)
+        
         # Get target address (if any)
         target_address = tx.get('to')
         
@@ -802,4 +807,627 @@ class QuestExecutor:
         
         if result.get('feedback'):
             print(f"\nFeedback: {result.get('feedback')}")
+    
+    def _handle_query_operation(
+        self,
+        tx: Dict[str, Any],
+        validator=None
+    ) -> Dict[str, Any]:
+        """
+        Handle query operation (no transaction required)
+        
+        Args:
+            tx: Query result object (contains 'query_result' field)
+            validator: Validator instance
+            
+        Returns:
+            Dictionary containing query result and validation result
+        """
+        print("="*80)
+        print("🔍 Processing query operation...")
+        print("="*80)
+        
+        query_result = tx.get('query_result', {})
+        success = query_result.get('success', False)
+        
+        if success:
+            print("✅ Query executed successfully")
+            if 'data' in query_result:
+                print(f"📊 Query result: {query_result['data']}")
+        else:
+            error = query_result.get('error', 'Unknown error')
+            print(f"❌ Query failed: {error}")
+        
+        # Get state snapshot for validation (query address balance, token balance, or allowance)
+        # For query operations, we need to get the actual value to compare
+        state_before = {'balance': 0, 'token_balance': 0, 'allowance': 0}
+        
+        # Always capture current block number and gas price as reference for validation
+        try:
+            current_block = self.w3.eth.block_number
+            state_before['reference_block_number'] = current_block
+        except Exception as e:
+            print(f"⚠️  Warning: Could not get current block number: {e}")
+        
+        try:
+            # Capture current gas price info for validation
+            # Try to get EIP-1559 fee data
+            latest_block = self.w3.eth.get_block('latest')
+            base_fee = latest_block.get('baseFeePerGas', 0)
+            
+            # Get suggested priority fee (typically 1-2 Gwei on BSC)
+            try:
+                max_priority_fee = self.w3.eth.max_priority_fee
+            except:
+                # Fallback: use a default priority fee
+                max_priority_fee = 1 * 10**9  # 1 Gwei
+            
+            # Calculate max fee (base fee + priority fee with buffer)
+            max_fee = base_fee + max_priority_fee
+            
+            state_before['reference_max_fee_per_gas'] = max_fee
+            state_before['reference_max_priority_fee_per_gas'] = max_priority_fee
+        except Exception as e:
+            print(f"⚠️  Warning: Could not get gas price info: {e}")
+        
+        # Extract validator attributes
+        if validator:
+            from eth_utils import to_checksum_address
+            
+            # Check if this is an allowance query
+            if hasattr(validator, 'owner_address') and hasattr(validator, 'spender_address'):
+                # ERC20 allowance query
+                token_address = to_checksum_address(validator.token_address)
+                owner_address = to_checksum_address(validator.owner_address)
+                spender_address = to_checksum_address(validator.spender_address)
+                
+                try:
+                    # ERC20 allowance function selector: 0xdd62ed3e
+                    # allowance(address owner, address spender)
+                    data = '0xdd62ed3e' + '000000000000000000000000' + owner_address[2:] + '000000000000000000000000' + spender_address[2:]
+                    result = self.w3.eth.call({
+                        'to': token_address,
+                        'data': data
+                    })
+                    allowance = int(result.hex(), 16)
+                    state_before['allowance'] = allowance
+                    
+                    decimals = getattr(validator, 'token_decimals', 18)
+                    print(f"📊 Actual allowance (for validation): {allowance} ({allowance / 10**decimals:.6f} tokens)")
+                except Exception as e:
+                    print(f"⚠️  Warning: Could not get actual allowance: {e}")
+            
+            # Check if this is an NFT approval query
+            elif hasattr(validator, 'nft_address') and hasattr(validator, 'token_id'):
+                # NFT approval status query
+                from eth_abi import encode
+                nft_address = to_checksum_address(validator.nft_address)
+                token_id = validator.token_id
+                
+                try:
+                    # ERC721 getApproved function selector: 0x081812fc
+                    # getApproved(uint256 tokenId)
+                    data = '0x081812fc' + encode(['uint256'], [token_id]).hex()
+                    result = self.w3.eth.call({
+                        'to': nft_address,
+                        'data': data
+                    })
+                    # Extract address from result (last 20 bytes)
+                    approved_address = '0x' + result.hex()[-40:]
+                    approved_address = to_checksum_address(approved_address)
+                    state_before['approved_address'] = approved_address
+                    
+                    print(f"📊 Actual approved address (for validation): {approved_address}")
+                except Exception as e:
+                    print(f"⚠️  Warning: Could not get actual approved address: {e}")
+            
+            # Check if this is a pair reserves query
+            elif hasattr(validator, 'pair_address') and hasattr(validator, 'token0_address'):
+                # PancakeSwap pair reserves query
+                pair_address = to_checksum_address(validator.pair_address)
+                
+                try:
+                    # PancakePair getReserves function selector: 0x0902f1ac
+                    # getReserves() returns (uint112 reserve0, uint112 reserve1, uint32 blockTimestampLast)
+                    data = '0x0902f1ac'
+                    result = self.w3.eth.call({
+                        'to': pair_address,
+                        'data': data
+                    })
+                    
+                    # Parse result: getReserves returns (uint112 reserve0, uint112 reserve1, uint32 blockTimestampLast)
+                    # In ABI encoding, each return value is padded to 32 bytes (64 hex chars)
+                    result_hex = result.hex()
+                    
+                    # Remove '0x' prefix if present
+                    if result_hex.startswith('0x'):
+                        result_hex = result_hex[2:]
+                    
+                    # Reserve0: first 32 bytes (64 hex chars), uint112 is right-aligned
+                    reserve0_hex = result_hex[0:64]
+                    reserve0 = int(reserve0_hex, 16)
+                    
+                    # Reserve1: next 32 bytes (64 hex chars)
+                    reserve1_hex = result_hex[64:128]
+                    reserve1 = int(reserve1_hex, 16)
+                    
+                    # blockTimestampLast: next 32 bytes (64 hex chars), uint32 is right-aligned
+                    timestamp_hex = result_hex[128:192]
+                    blockTimestampLast = int(timestamp_hex, 16)
+                    
+                    state_before['reserve0'] = reserve0
+                    state_before['reserve1'] = reserve1
+                    state_before['blockTimestampLast'] = blockTimestampLast
+                    
+                    token0_decimals = getattr(validator, 'token0_decimals', 18)
+                    token1_decimals = getattr(validator, 'token1_decimals', 18)
+                    
+                    print(f"📊 Actual reserves (for validation):")
+                    print(f"   Reserve0: {reserve0} ({reserve0 / 10**token0_decimals:.6f} {validator.token0_symbol})")
+                    print(f"   Reserve1: {reserve1} ({reserve1 / 10**token1_decimals:.6f} {validator.token1_symbol})")
+                    print(f"   Block Timestamp Last: {blockTimestampLast}")
+                except Exception as e:
+                    print(f"⚠️  Warning: Could not get actual reserves: {e}")
+                    import traceback
+                    traceback.print_exc()
+            
+            # Check if this is a swap input amount query
+            elif hasattr(validator, 'router_address') and hasattr(validator, 'token_in_address') and hasattr(validator, 'amount_out'):
+                # PancakeSwap swap input amount query
+                from eth_abi import encode
+                from decimal import Decimal
+                
+                router_address = to_checksum_address(validator.router_address)
+                token_in_address = to_checksum_address(validator.token_in_address)
+                token_out_address = to_checksum_address(validator.token_out_address)
+                amount_out = validator.amount_out
+                token_in_decimals = getattr(validator, 'token_in_decimals', 18)
+                token_out_decimals = getattr(validator, 'token_out_decimals', 18)
+                
+                try:
+                    # Convert amount_out to wei
+                    amount_out_wei = int(Decimal(str(amount_out)) * Decimal(10**token_out_decimals))
+                    
+                    # Router getAmountsIn function selector: 0x1f00ca74
+                    # getAmountsIn(uint amountOut, address[] path)
+                    # Encode: amountOut (uint256) + path offset (uint256) + path length (uint256) + path elements
+                    
+                    path = [token_in_address, token_out_address]
+                    
+                    # Encode the function call
+                    selector = bytes.fromhex('1f00ca74')
+                    # amountOut
+                    encoded_amount = encode(['uint256'], [amount_out_wei])
+                    # path array offset (32 bytes after amountOut = 0x40)
+                    encoded_offset = encode(['uint256'], [64])
+                    # path array length
+                    encoded_length = encode(['uint256'], [len(path)])
+                    # path elements
+                    encoded_path = encode(['address'] * len(path), path)
+                    
+                    data = '0x' + selector.hex() + encoded_amount.hex() + encoded_offset.hex() + encoded_length.hex() + encoded_path.hex()
+                    
+                    result = self.w3.eth.call({
+                        'to': router_address,
+                        'data': data
+                    })
+                    
+                    # Parse result: dynamic array of uint256[]
+                    # For dynamic arrays in ABI encoding:
+                    # First 32 bytes (64 hex chars): offset to array data (usually 0x20 = 32)
+                    # At offset: 32 bytes for array length
+                    # Then: array elements (each 32 bytes)
+                    result_hex = result.hex()
+                    
+                    # Remove '0x' prefix if present
+                    if result_hex.startswith('0x'):
+                        result_hex = result_hex[2:]
+                    
+                    # First 32 bytes (64 chars): offset
+                    offset_hex = result_hex[0:64]
+                    offset = int(offset_hex, 16) * 2  # Convert to hex char offset
+                    
+                    # At offset: array length (32 bytes = 64 hex chars)
+                    array_length_hex = result_hex[offset:offset+64]
+                    array_length = int(array_length_hex, 16)
+                    
+                    # Parse array elements
+                    amounts = []
+                    elements_start = offset + 64
+                    for i in range(array_length):
+                        start = elements_start + (i * 64)
+                        end = start + 64
+                        amount_hex = result_hex[start:end]
+                        if amount_hex:  # Check not empty
+                            amounts.append(int(amount_hex, 16))
+                    
+                    state_before['expected_amounts'] = amounts
+                    
+                    print(f"📊 Actual amounts (for validation):")
+                    print(f"   Required Input: {amounts[0]} ({amounts[0] / 10**token_in_decimals:.6f} {validator.token_in_symbol})")
+                    if len(amounts) > 1:
+                        print(f"   Desired Output: {amounts[1]} ({amounts[1] / 10**token_out_decimals:.6f} {validator.token_out_symbol})")
+                except Exception as e:
+                    print(f"⚠️  Warning: Could not get actual swap input amounts: {e}")
+                    import traceback
+                    traceback.print_exc()
+            
+            # Check if this is a swap output amount query
+            elif hasattr(validator, 'router_address') and hasattr(validator, 'token_in_address') and hasattr(validator, 'amount_in'):
+                # PancakeSwap swap output amount query
+                from eth_abi import encode
+                from decimal import Decimal
+                
+                router_address = to_checksum_address(validator.router_address)
+                token_in_address = to_checksum_address(validator.token_in_address)
+                token_out_address = to_checksum_address(validator.token_out_address)
+                amount_in = validator.amount_in
+                token_in_decimals = getattr(validator, 'token_in_decimals', 18)
+                token_out_decimals = getattr(validator, 'token_out_decimals', 18)
+                
+                try:
+                    # Convert amount_in to wei
+                    amount_in_wei = int(Decimal(str(amount_in)) * Decimal(10**token_in_decimals))
+                    
+                    # Router getAmountsOut function selector: 0xd06ca61f
+                    # getAmountsOut(uint amountIn, address[] path)
+                    # Encode: amountIn (uint256) + path offset (uint256) + path length (uint256) + path elements
+                    
+                    path = [token_in_address, token_out_address]
+                    
+                    # Encode the function call
+                    selector = bytes.fromhex('d06ca61f')
+                    # amountIn
+                    encoded_amount = encode(['uint256'], [amount_in_wei])
+                    # path array offset (32 bytes after amountIn = 0x40)
+                    encoded_offset = encode(['uint256'], [64])
+                    # path array length
+                    encoded_length = encode(['uint256'], [len(path)])
+                    # path elements
+                    encoded_path = encode(['address'] * len(path), path)
+                    
+                    data = '0x' + selector.hex() + encoded_amount.hex() + encoded_offset.hex() + encoded_length.hex() + encoded_path.hex()
+                    
+                    result = self.w3.eth.call({
+                        'to': router_address,
+                        'data': data
+                    })
+                    
+                    # Parse result: dynamic array of uint256[]
+                    # For dynamic arrays in ABI encoding:
+                    # First 32 bytes (64 hex chars): offset to array data (usually 0x20 = 32)
+                    # At offset: 32 bytes for array length
+                    # Then: array elements (each 32 bytes)
+                    result_hex = result.hex()
+                    
+                    # Remove '0x' prefix if present
+                    if result_hex.startswith('0x'):
+                        result_hex = result_hex[2:]
+                    
+                    # First 32 bytes (64 chars): offset
+                    offset_hex = result_hex[0:64]
+                    offset = int(offset_hex, 16) * 2  # Convert to hex char offset
+                    
+                    # At offset: array length (32 bytes = 64 hex chars)
+                    array_length_hex = result_hex[offset:offset+64]
+                    array_length = int(array_length_hex, 16)
+                    
+                    # Parse array elements
+                    amounts = []
+                    elements_start = offset + 64
+                    for i in range(array_length):
+                        start = elements_start + (i * 64)
+                        end = start + 64
+                        amount_hex = result_hex[start:end]
+                        if amount_hex:  # Check not empty
+                            amounts.append(int(amount_hex, 16))
+                    
+                    state_before['expected_amounts'] = amounts
+                    
+                    print(f"📊 Actual amounts (for validation):")
+                    print(f"   Amount In: {amounts[0]} ({amounts[0] / 10**token_in_decimals:.6f} {validator.token_in_symbol})")
+                    if len(amounts) > 1:
+                        print(f"   Amount Out: {amounts[1]} ({amounts[1] / 10**token_out_decimals:.6f} {validator.token_out_symbol})")
+                except Exception as e:
+                    print(f"⚠️  Warning: Could not get actual swap output amounts: {e}")
+                    import traceback
+                    traceback.print_exc()
+            
+            # Check if this is an NFT token URI query
+            elif hasattr(validator, 'nft_address') and hasattr(validator, 'token_id') and not hasattr(validator, 'expected_owner'):
+                # ERC721 NFT tokenURI query
+                from eth_abi import encode, decode
+                
+                nft_address = to_checksum_address(validator.nft_address)
+                token_id = validator.token_id
+                
+                try:
+                    # ERC721 tokenURI function selector: 0xc87b56dd
+                    # tokenURI(uint256 tokenId) returns (string)
+                    data = '0xc87b56dd' + encode(['uint256'], [token_id]).hex()
+                    result = self.w3.eth.call({
+                        'to': nft_address,
+                        'data': data
+                    })
+                    
+                    # Parse result: string (dynamic type)
+                    token_uri = decode(['string'], result)[0]
+                    
+                    state_before['token_uri'] = token_uri
+                    
+                    print(f"📊 Actual NFT token URI (for validation):")
+                    print(f"   NFT Address: {nft_address}")
+                    print(f"   Token ID: {token_id}")
+                    print(f"   Token URI: {token_uri}")
+                except Exception as e:
+                    print(f"⚠️  Warning: Could not get actual NFT token URI: {e}")
+                    import traceback
+                    traceback.print_exc()
+            
+            # Check if this is an NFT owner query
+            elif hasattr(validator, 'nft_address') and hasattr(validator, 'token_id') and hasattr(validator, 'expected_owner'):
+                # ERC721 NFT ownerOf query
+                from eth_abi import encode, decode
+                
+                nft_address = to_checksum_address(validator.nft_address)
+                token_id = validator.token_id
+                
+                try:
+                    # ERC721 ownerOf function selector: 0x6352211e
+                    # ownerOf(uint256 tokenId) returns (address)
+                    data = '0x6352211e' + encode(['uint256'], [token_id]).hex()
+                    result = self.w3.eth.call({
+                        'to': nft_address,
+                        'data': data
+                    })
+                    
+                    # Parse result: address (32 bytes, right-padded)
+                    nft_owner = decode(['address'], result)[0]
+                    
+                    state_before['nft_owner'] = nft_owner.lower()
+                    
+                    print(f"📊 Actual NFT owner (for validation):")
+                    print(f"   NFT Address: {nft_address}")
+                    print(f"   Token ID: {token_id}")
+                    print(f"   Owner: {nft_owner}")
+                except Exception as e:
+                    print(f"⚠️  Warning: Could not get actual NFT owner: {e}")
+                    import traceback
+                    traceback.print_exc()
+            
+            # Check if this is a token balance query (must come before total supply check)
+            elif hasattr(validator, 'query_address') and hasattr(validator, 'token_address'):
+                # ERC20 balance query
+                query_address = to_checksum_address(validator.query_address)
+                token_address = to_checksum_address(validator.token_address)
+                try:
+                    # ERC20 balanceOf function selector: 0x70a08231
+                    data = '0x70a08231' + '000000000000000000000000' + query_address[2:]
+                    result = self.w3.eth.call({
+                        'to': token_address,
+                        'data': data
+                    })
+                    token_balance = int(result.hex(), 16)
+                    state_before['token_balance'] = token_balance
+                    
+                    decimals = getattr(validator, 'token_decimals', 18)
+                    print(f"📊 Actual token balance (for validation): {token_balance} ({token_balance / 10**decimals:.6f} tokens)")
+                except Exception as e:
+                    print(f"⚠️  Warning: Could not get actual token balance: {e}")
+            
+            # Check if this is a token total supply query
+            elif hasattr(validator, 'token_address') and hasattr(validator, 'token_decimals') and not hasattr(validator, 'expected_name'):
+                # ERC20 token totalSupply query (single function)
+                from eth_abi import decode
+                
+                token_address = to_checksum_address(validator.token_address)
+                
+                try:
+                    # Query totalSupply() - 0x18160ddd
+                    total_supply_data = '0x18160ddd'
+                    total_supply_result = self.w3.eth.call({
+                        'to': token_address,
+                        'data': total_supply_data
+                    })
+                    # Decode uint256
+                    token_total_supply = decode(['uint256'], total_supply_result)[0]
+                    
+                    state_before['token_total_supply'] = token_total_supply
+                    
+                    token_decimals = getattr(validator, 'token_decimals', 18)
+                    token_symbol = getattr(validator, 'token_symbol', 'TOKEN')
+                    
+                    print(f"📊 Actual token total supply (for validation):")
+                    print(f"   Total Supply: {token_total_supply} wei ({token_total_supply / 10**token_decimals:.6f} {token_symbol})")
+                except Exception as e:
+                    print(f"⚠️  Warning: Could not get actual token total supply: {e}")
+                    import traceback
+                    traceback.print_exc()
+            
+            # Check if this is a token metadata query
+            elif hasattr(validator, 'token_address') and hasattr(validator, 'expected_name') and hasattr(validator, 'expected_symbol'):
+                # ERC20 token metadata query
+                from eth_abi import decode
+                
+                token_address = to_checksum_address(validator.token_address)
+                
+                try:
+                    # Query name() - 0x06fdde03
+                    name_data = '0x06fdde03'
+                    name_result = self.w3.eth.call({
+                        'to': token_address,
+                        'data': name_data
+                    })
+                    # Decode string (dynamic type)
+                    token_name = decode(['string'], name_result)[0]
+                    
+                    # Query symbol() - 0x95d89b41
+                    symbol_data = '0x95d89b41'
+                    symbol_result = self.w3.eth.call({
+                        'to': token_address,
+                        'data': symbol_data
+                    })
+                    # Decode string
+                    token_symbol = decode(['string'], symbol_result)[0]
+                    
+                    # Query decimals() - 0x313ce567
+                    decimals_data = '0x313ce567'
+                    decimals_result = self.w3.eth.call({
+                        'to': token_address,
+                        'data': decimals_data
+                    })
+                    # Decode uint8
+                    token_decimals = decode(['uint8'], decimals_result)[0]
+                    
+                    # Query totalSupply() - 0x18160ddd
+                    total_supply_data = '0x18160ddd'
+                    total_supply_result = self.w3.eth.call({
+                        'to': token_address,
+                        'data': total_supply_data
+                    })
+                    # Decode uint256
+                    token_total_supply = decode(['uint256'], total_supply_result)[0]
+                    
+                    state_before['token_name'] = token_name
+                    state_before['token_symbol'] = token_symbol
+                    state_before['token_decimals'] = token_decimals
+                    state_before['token_total_supply'] = token_total_supply
+                    
+                    print(f"📊 Actual token metadata (for validation):")
+                    print(f"   Name: {token_name}")
+                    print(f"   Symbol: {token_symbol}")
+                    print(f"   Decimals: {token_decimals}")
+                    print(f"   Total Supply: {token_total_supply} ({token_total_supply / 10**token_decimals:.6f} {token_symbol})")
+                except Exception as e:
+                    print(f"⚠️  Warning: Could not get actual token metadata: {e}")
+                    import traceback
+                    traceback.print_exc()
+            
+            # Check if this is a pending rewards query
+            elif hasattr(validator, 'pool_address') and hasattr(validator, 'query_address') and hasattr(validator, 'expected_pending_rewards'):
+                # SimpleRewardPool pendingReward query
+                from eth_abi import encode
+                
+                pool_address = to_checksum_address(validator.pool_address)
+                query_address = to_checksum_address(validator.query_address)
+                
+                try:
+                    # SimpleRewardPool pendingReward function selector: 0xf40f0f52
+                    # pendingReward(address _user) returns (uint256)
+                    data = '0xf40f0f52' + encode(['address'], [query_address]).hex()
+                    result = self.w3.eth.call({
+                        'to': pool_address,
+                        'data': data
+                    })
+                    
+                    # Parse result: uint256 (32 bytes)
+                    result_hex = result.hex()
+                    
+                    # Remove '0x' prefix if present
+                    if result_hex.startswith('0x'):
+                        result_hex = result_hex[2:]
+                    
+                    # pending rewards: 32 bytes (64 hex chars)
+                    pending_rewards_hex = result_hex[0:64]
+                    pending_rewards = int(pending_rewards_hex, 16)
+                    
+                    state_before['pending_rewards'] = pending_rewards
+                    
+                    reward_token_decimals = getattr(validator, 'reward_token_decimals', 18)
+                    print(f"📊 Actual pending rewards (for validation):")
+                    print(f"   Pending rewards: {pending_rewards} wei ({pending_rewards / 10**reward_token_decimals:.6f} tokens)")
+                except Exception as e:
+                    print(f"⚠️  Warning: Could not get actual pending rewards: {e}")
+                    import traceback
+                    traceback.print_exc()
+            
+            # Check if this is a staked amount query
+            elif hasattr(validator, 'pool_address') and hasattr(validator, 'query_address') and hasattr(validator, 'expected_staked_amount'):
+                # Staking contract userInfo query
+                from eth_abi import encode
+                
+                pool_address = to_checksum_address(validator.pool_address)
+                query_address = to_checksum_address(validator.query_address)
+                
+                try:
+                    # SimpleStaking userInfo function selector: 0x1959a002
+                    # userInfo(address _user) returns (uint256 amount, uint256 depositTime)
+                    data = '0x1959a002' + encode(['address'], [query_address]).hex()
+                    result = self.w3.eth.call({
+                        'to': pool_address,
+                        'data': data
+                    })
+                    
+                    # Parse result: amount (uint256, 32 bytes) + depositTime (uint256, 32 bytes)
+                    result_hex = result.hex()
+                    
+                    # Remove '0x' prefix if present
+                    if result_hex.startswith('0x'):
+                        result_hex = result_hex[2:]
+                    
+                    # amount: first 32 bytes (64 hex chars)
+                    amount_hex = result_hex[0:64]
+                    staked_amount = int(amount_hex, 16)
+                    
+                    # depositTime: next 32 bytes (64 hex chars)
+                    deposit_time_hex = result_hex[64:128]
+                    deposit_time = int(deposit_time_hex, 16)
+                    
+                    state_before['staked_amount'] = staked_amount
+                    state_before['deposit_time'] = deposit_time
+                    
+                    token_decimals = getattr(validator, 'token_decimals', 18)
+                    print(f"📊 Actual staked amount (for validation):")
+                    print(f"   Staked amount: {staked_amount} wei ({staked_amount / 10**token_decimals:.6f} tokens)")
+                    print(f"   Deposit time: {deposit_time}")
+                except Exception as e:
+                    print(f"⚠️  Warning: Could not get actual staked amount: {e}")
+                    import traceback
+                    traceback.print_exc()
+            
+            # Check if this is a transaction count (nonce) query
+            elif hasattr(validator, 'query_address') and not hasattr(validator, 'token_address') and not hasattr(validator, 'nft_address'):
+                # Could be BNB balance query or nonce query - check validator type
+                query_address = to_checksum_address(validator.query_address)
+                
+                # Try to get nonce if this is a nonce query
+                try:
+                    nonce = self.w3.eth.get_transaction_count(query_address, 'pending')
+                    state_before['reference_nonce'] = nonce
+                    print(f"📊 Actual nonce (for validation): {nonce}")
+                except Exception as e:
+                    print(f"⚠️  Warning: Could not get nonce: {e}")
+                
+                # Also try to get balance (for BNB balance queries)
+                try:
+                    balance = self.w3.eth.get_balance(query_address)
+                    state_before['balance'] = balance
+                    print(f"📊 Actual balance (for validation): {balance} wei ({balance / 10**18:.6f} BNB)")
+                except Exception as e:
+                    print(f"⚠️  Warning: Could not get actual balance: {e}")
+        
+        # Validate query result
+        validation_result = None
+        if validator:
+            print("\n" + "="*80)
+            print("🔍 Starting validation...")
+            print("="*80)
+            
+            # For query operations, we pass the tx object (containing query_result)
+            # and state_before (containing actual balance)
+            validation_result = validator.validate(
+                tx=tx,
+                receipt={},  # No receipt for query operations
+                state_before=state_before,
+                state_after={}  # No state change for query operations
+            )
+            
+            # Print validation result
+            self._print_validation_result(validation_result)
+        
+        return {
+            'success': success,
+            'query_result': query_result,
+            'validation': validation_result
+        }
 

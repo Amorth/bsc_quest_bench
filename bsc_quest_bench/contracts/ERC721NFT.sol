@@ -24,6 +24,9 @@ contract ERC721NFT {
     // Token counter
     uint256 private _tokenIdCounter;
     
+    // Base URI for token metadata
+    string private _baseTokenURI = "ipfs://QmTest/";
+    
     event Transfer(address indexed from, address indexed to, uint256 indexed tokenId);
     event Approval(address indexed owner, address indexed approved, uint256 indexed tokenId);
     event ApprovalForAll(address indexed owner, address indexed operator, bool approved);
@@ -71,6 +74,11 @@ contract ERC721NFT {
     
     function isApprovedForAll(address owner, address operator) public view returns (bool) {
         return _operatorApprovals[owner][operator];
+    }
+    
+    function tokenURI(uint256 tokenId) public view returns (string memory) {
+        require(_owners[tokenId] != address(0), "ERC721: URI query for nonexistent token");
+        return string(abi.encodePacked(_baseTokenURI, _toString(tokenId)));
     }
     
     function transferFrom(address from, address to, uint256 tokenId) public {
@@ -136,6 +144,25 @@ contract ERC721NFT {
         } catch {
             return false;
         }
+    }
+    
+    function _toString(uint256 value) internal pure returns (string memory) {
+        if (value == 0) {
+            return "0";
+        }
+        uint256 temp = value;
+        uint256 digits;
+        while (temp != 0) {
+            digits++;
+            temp /= 10;
+        }
+        bytes memory buffer = new bytes(digits);
+        while (value != 0) {
+            digits -= 1;
+            buffer[digits] = bytes1(uint8(48 + uint256(value % 10)));
+            value /= 10;
+        }
+        return string(buffer);
     }
 }
 

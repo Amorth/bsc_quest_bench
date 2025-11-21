@@ -49,6 +49,23 @@ from .unstake_lp_tokens_validator import UnstakeLPTokensValidator
 from .harvest_rewards_validator import HarvestRewardsValidator
 from .emergency_withdraw_validator import EmergencyWithdrawValidator
 from .erc20_transferfrom_basic_validator import ERC20TransferFromBasicValidator
+from .query_bnb_balance_validator import QueryBNBBalanceValidator
+from .query_erc20_balance_validator import QueryERC20BalanceValidator
+from .query_erc20_allowance_validator import QueryERC20AllowanceValidator
+from .query_nft_approval_status_validator import QueryNFTApprovalStatusValidator
+from .query_pair_reserves_validator import QueryPairReservesValidator
+from .query_swap_output_amount_validator import QuerySwapOutputAmountValidator
+from .query_swap_input_amount_validator import QuerySwapInputAmountValidator
+from .query_staked_amount_validator import QueryStakedAmountValidator
+from .query_pending_rewards_validator import QueryPendingRewardsValidator
+from .query_token_metadata_validator import QueryTokenMetadataValidator
+from .query_token_total_supply_validator import QueryTokenTotalSupplyValidator
+from .query_nft_owner_validator import QueryNFTOwnerValidator
+from .query_nft_token_uri_validator import QueryNFTTokenURIValidator
+from .query_nft_balance_validator import QueryNFTBalanceValidator
+from .query_current_block_number_validator import QueryCurrentBlockNumberValidator
+from .query_gas_price_validator import QueryGasPriceValidator
+from .query_transaction_count_nonce_validator import QueryTransactionCountNonceValidator
 
 __all__ = [
     'BNBTransferValidator',
@@ -95,6 +112,23 @@ __all__ = [
     'StakeLPTokensValidator',
     'UnstakeLPTokensValidator',
     'HarvestRewardsValidator',
-    'EmergencyWithdrawValidator'
+    'EmergencyWithdrawValidator',
+    'QueryBNBBalanceValidator',
+    'QueryERC20BalanceValidator',
+    'QueryERC20AllowanceValidator',
+    'QueryNFTApprovalStatusValidator',
+    'QueryPairReservesValidator',
+    'QuerySwapOutputAmountValidator',
+    'QuerySwapInputAmountValidator',
+    'QueryStakedAmountValidator',
+    'QueryPendingRewardsValidator',
+    'QueryTokenMetadataValidator',
+    'QueryTokenTotalSupplyValidator',
+    'QueryNFTOwnerValidator',
+    'QueryNFTTokenURIValidator',
+    'QueryNFTBalanceValidator',
+    'QueryCurrentBlockNumberValidator',
+    'QueryGasPriceValidator',
+    'QueryTransactionCountNonceValidator'
 ]
 

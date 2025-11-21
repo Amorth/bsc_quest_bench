@@ -112,6 +112,22 @@ async function runSkill() {
             throw new Error(`executeSkill must return a transaction object or JSON string, got: ${typeof txObject}`);
         }
         
+        // Check if this is a query operation (returns query_result instead of transaction)
+        if ('query_result' in txObject) {
+            console.error('🔍 DEBUG - Query operation detected, returning result directly');
+            
+            // Return query result directly (no transaction serialization needed)
+            console.log(JSON.stringify({
+                success: true,
+                tx_object: txObject,  // Contains query_result
+                execution_time: Date.now()
+            }, (key, value) =>
+                typeof value === 'bigint' ? value.toString() : value
+            ));
+            
+            process.exit(0);
+        }
+        
         // Validate transaction object has required fields
         const requiredFields = ['to'];
         const missingFields = requiredFields.filter(field => !(field in txObject));

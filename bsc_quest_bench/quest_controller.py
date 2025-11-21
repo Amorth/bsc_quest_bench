@@ -192,16 +192,29 @@ class QuestController:
         # Recreate parameter generator with environment
         env_param_generator = ParameterGenerator(environment=env)
         
-        # Regenerate all parameters
-        new_params = env_param_generator.generate_parameters(params_config)
+        # Only regenerate parameters that require environment (from_env method)
+        # Keep other parameters (especially random ones) unchanged
+        new_params = {}
+        for param_name, param_config in params_config.items():
+            generation_config = param_config.get('generation', {})
+            if generation_config.get('method') == 'from_env':
+                # Regenerate this parameter
+                single_param_config = {param_name: param_config}
+                regenerated = env_param_generator.generate_parameters(single_param_config)
+                new_params[param_name] = regenerated[param_name]
+            # else: keep the original value (don't regenerate random parameters)
         
         # Display updated parameters
         for param_name in env_param_names:
             old_value = self.generated_params.get(param_name, 'N/A')
             new_value = new_params.get(param_name, 'N/A')
-            print(f"  • {param_name}: {old_value[:10]}... → {new_value}")
+            if isinstance(old_value, str) and len(old_value) > 10:
+                old_display = old_value[:10] + '...'
+            else:
+                old_display = str(old_value)
+            print(f"  • {param_name}: {old_display} → {new_value}")
         
-        # Update parameters
+        # Update only the regenerated parameters
         self.generated_params.update(new_params)
         
         # Regenerate natural language prompt
@@ -507,7 +520,12 @@ class QuestController:
             print("─"*80)
             print()
             
-            # 5. Execute code to generate transaction object
+            # 5. Setup for query operations BEFORE executing code (set random balance if needed)
+            operation_type = self.question.get('metadata', {}).get('operation_type')
+            if operation_type == 'query':
+                self._setup_query_operation(env, self.generated_params)
+            
+            # 6. Execute code to generate transaction object
             print("⚙️  Executing TypeScript code...")
             from .skill_manager.ts_skill_manager import TypeScriptSkillManager
             
@@ -558,7 +576,7 @@ class QuestController:
                 if os.path.exists(code_file):
                     os.unlink(code_file)
             
-            # 6. Create executor and execute transaction
+            # 7. Create executor and execute transaction
             print("🔗 Executing transaction...")
             executor = QuestExecutor(
                 w3=env.w3,
@@ -823,6 +841,385 @@ class QuestController:
         
         self.result['end_time'] = datetime.now().isoformat()
         return self.result
+    
+    def _setup_query_operation(self, env, params: Dict[str, Any]):
+        """
+        Setup for query operations - set random balance/allowance for query
+        
+        Args:
+            env: QuestEnvironment instance
+            params: Generated parameters including addresses and expected values
+        """
+        from decimal import Decimal
+        from eth_utils import to_checksum_address
+        
+        question_id = self.question.get('id')
+        
+        # Get expected value based on question type
+        expected_value = params.get('expected_balance') or params.get('expected_allowance')
+        expected_approved_address = params.get('expected_approved_address')
+        
+        # Skip if no expected values (but continue for NFT approval)
+        if expected_value is None and expected_approved_address is None:
+            return
+        
+        print(f"\n🔧 Setting up query operation: {question_id}")
+        if expected_value is not None:
+            print(f"   Expected value: {expected_value}")
+        if expected_approved_address is not None:
+            print(f"   Expected approved address: {expected_approved_address}")
+        
+        try:
+            if question_id == 'query_bnb_balance':
+                # Set BNB balance using anvil_setBalance
+                query_address = params.get('query_address')
+                if not query_address:
+                    return
+                query_address = to_checksum_address(query_address)
+                print(f"   Query address: {query_address}")
+                
+                balance_wei = int(Decimal(str(expected_value)) * Decimal(10**18))
+                env.w3.provider.make_request(
+                    'anvil_setBalance',
+                    [query_address, hex(balance_wei)]
+                )
+                
+                # Verify
+                actual_balance = env.w3.eth.get_balance(query_address)
+                print(f"   ✅ BNB balance set: {actual_balance / 10**18:.6f} BNB")
+                
+            elif question_id == 'query_erc20_balance':
+                # Set ERC20 token balance using anvil_setStorageAt
+                query_address = params.get('query_address')
+                token_address = params.get('token_address')
+                token_decimals = params.get('token_decimals', 18)
+                
+                if query_address and token_address:
+                    query_address = to_checksum_address(query_address)
+                    print(f"   Query address: {query_address}")
+                    
+                    balance_raw = int(Decimal(str(expected_value)) * Decimal(10**token_decimals))
+                    
+                    # Use environment's _set_erc20_balance_direct method
+                    # ERC1363 test token uses balance slot 4
+                    success = env._set_erc20_balance_direct(
+                        token_address,
+                        query_address,
+                        balance_raw,
+                        balance_slot=4
+                    )
+                    
+                    if success:
+                        print(f"   ✅ Token balance set: {expected_value} tokens")
+                    else:
+                        print(f"   ⚠️  Warning: Failed to set token balance")
+                else:
+                    print(f"   ⚠️  Warning: Missing parameters for balance setup")
+            
+            elif question_id == 'query_erc20_allowance':
+                # Set ERC20 token allowance using anvil_setStorageAt
+                token_address = params.get('token_address')
+                owner_address = params.get('owner_address')
+                spender_address = params.get('spender_address')
+                token_decimals = params.get('token_decimals', 18)
+                
+                if token_address and owner_address and spender_address:
+                    print(f"   Owner: {owner_address}")
+                    print(f"   Spender: {spender_address}")
+                    
+                    allowance_raw = int(Decimal(str(expected_value)) * Decimal(10**token_decimals))
+                    
+                    # Set allowance via contract call (more reliable than storage manipulation)
+                    # Use impersonation to call approve() from owner's account
+                    success = self._set_erc20_allowance_via_approve(
+                        env,
+                        token_address,
+                        owner_address,
+                        spender_address,
+                        allowance_raw
+                    )
+                    
+                    if success:
+                        print(f"   ✅ Token allowance set: {expected_value} tokens")
+                    else:
+                        print(f"   ⚠️  Warning: Failed to set token allowance")
+                else:
+                    print(f"   ⚠️  Warning: Missing parameters for allowance setup")
+            
+            elif question_id == 'query_nft_approval_status':
+                # Set NFT approval using approve() function
+                nft_address = params.get('nft_address')
+                token_id = params.get('token_id')
+                approved_address = params.get('expected_approved_address')
+                
+                if nft_address and token_id is not None and approved_address:
+                    print(f"   NFT: {nft_address}")
+                    print(f"   Token ID: {token_id}")
+                    print(f"   Approved address: {approved_address}")
+                    
+                    # Set approval via contract call using impersonation
+                    success = self._set_nft_approval_via_approve(
+                        env,
+                        nft_address,
+                        token_id,
+                        approved_address
+                    )
+                    
+                    if success:
+                        print(f"   ✅ NFT approval set for token #{token_id}")
+                    else:
+                        print(f"   ⚠️  Warning: Failed to set NFT approval")
+                else:
+                    print(f"   ⚠️  Warning: Missing parameters for NFT approval setup")
+        
+        except Exception as e:
+            print(f"   ⚠️  Warning: Failed to setup query operation: {e}")
+            import traceback
+            traceback.print_exc()
+    
+    def _set_erc20_allowance_via_approve(
+        self,
+        env,
+        token_address: str,
+        owner_address: str,
+        spender_address: str,
+        amount: int
+    ) -> bool:
+        """
+        Set ERC20 allowance via approve() function using account impersonation
+        
+        Args:
+            env: QuestEnvironment instance
+            token_address: Token contract address
+            owner_address: Owner address (will be impersonated)
+            spender_address: Spender address
+            amount: Allowance amount in smallest unit
+            
+        Returns:
+            bool: True if successful
+        """
+        from eth_utils import to_checksum_address
+        from eth_abi import encode
+        
+        try:
+            token_address = to_checksum_address(token_address)
+            owner_address = to_checksum_address(owner_address)
+            spender_address = to_checksum_address(spender_address)
+            
+            print(f"    [DEBUG] Token: {token_address}")
+            print(f"    [DEBUG] Owner: {owner_address}")
+            print(f"    [DEBUG] Spender: {spender_address}")
+            print(f"    [DEBUG] Amount: {amount}")
+            
+            # Give owner some BNB for gas fees
+            print(f"    [DEBUG] Setting owner balance for gas...")
+            env.w3.provider.make_request('anvil_setBalance', [owner_address, hex(10**18)])  # 1 BNB
+            
+            # Impersonate owner account
+            print(f"    [DEBUG] Impersonating owner...")
+            env.w3.provider.make_request('anvil_impersonateAccount', [owner_address])
+            
+            # ERC20 approve function selector: 0x095ea7b3
+            # approve(address spender, uint256 amount)
+            approve_selector = bytes.fromhex('095ea7b3')
+            approve_data = '0x' + approve_selector.hex() + encode(['address', 'uint256'], [spender_address, amount]).hex()
+            
+            print(f"    [DEBUG] Calling approve()...")
+            # Send approve transaction
+            response = env.w3.provider.make_request(
+                'eth_sendTransaction',
+                [{
+                    'from': owner_address,
+                    'to': token_address,
+                    'data': approve_data,
+                    'gas': hex(100000),
+                    'gasPrice': hex(3000000000)
+                }]
+            )
+            
+            # Check response
+            if 'result' not in response:
+                print(f"    [DEBUG] Approve transaction failed: {response.get('error', 'Unknown error')}")
+                return False
+            
+            tx_hash = response['result']
+            print(f"    [DEBUG] Approve tx hash: {tx_hash}")
+            
+            # Wait for confirmation
+            max_attempts = 20
+            for i in range(max_attempts):
+                receipt = env.w3.eth.get_transaction_receipt(tx_hash)
+                if receipt is not None:
+                    if receipt['status'] == 1:
+                        print(f"    [DEBUG] Approve transaction confirmed")
+                        break
+                    else:
+                        print(f"    [DEBUG] Approve transaction failed (status=0)")
+                        return False
+                time.sleep(0.1)
+            else:
+                print(f"    [DEBUG] Approve transaction not confirmed after {max_attempts} attempts")
+                return False
+            
+            # Stop impersonating
+            env.w3.provider.make_request('anvil_stopImpersonatingAccount', [owner_address])
+            
+            # Verify allowance
+            print(f"    [DEBUG] Verifying allowance...")
+            token_contract = env.w3.eth.contract(
+                address=token_address,
+                abi=[{
+                    "constant": True,
+                    "inputs": [
+                        {"name": "owner", "type": "address"},
+                        {"name": "spender", "type": "address"}
+                    ],
+                    "name": "allowance",
+                    "outputs": [{"name": "", "type": "uint256"}],
+                    "type": "function"
+                }]
+            )
+            
+            actual_allowance = token_contract.functions.allowance(owner_address, spender_address).call()
+            print(f"    [DEBUG] Actual allowance after setting: {actual_allowance}")
+            print(f"    [DEBUG] Expected: {amount}")
+            print(f"    [DEBUG] Match: {actual_allowance == amount}")
+            
+            return actual_allowance == amount
+            
+        except Exception as e:
+            print(f"    [DEBUG] Error setting allowance: {e}")
+            import traceback
+            traceback.print_exc()
+            # Stop impersonating in case of error
+            try:
+                env.w3.provider.make_request('anvil_stopImpersonatingAccount', [owner_address])
+            except:
+                pass
+            return False
+    
+    def _set_nft_approval_via_approve(
+        self,
+        env,
+        nft_address: str,
+        token_id: int,
+        approved_address: str
+    ) -> bool:
+        """
+        Set NFT approval via approve() function using account impersonation
+        
+        Args:
+            env: QuestEnvironment instance
+            nft_address: NFT contract address
+            token_id: Token ID to approve
+            approved_address: Address to approve
+            
+        Returns:
+            bool: True if successful
+        """
+        from eth_utils import to_checksum_address
+        from eth_abi import encode
+        
+        try:
+            nft_address = to_checksum_address(nft_address)
+            approved_address = to_checksum_address(approved_address)
+            
+            print(f"    [DEBUG] NFT: {nft_address}")
+            print(f"    [DEBUG] Token ID: {token_id}")
+            print(f"    [DEBUG] Approved address: {approved_address}")
+            
+            # Get the current owner of the token
+            # ERC721 ownerOf function selector: 0x6352211e
+            owner_selector = bytes.fromhex('6352211e')
+            owner_data = '0x' + owner_selector.hex() + encode(['uint256'], [token_id]).hex()
+            
+            owner_result = env.w3.eth.call({
+                'to': nft_address,
+                'data': owner_data
+            })
+            owner_address = '0x' + owner_result.hex()[-40:]  # Extract address from result
+            owner_address = to_checksum_address(owner_address)
+            print(f"    [DEBUG] Token owner: {owner_address}")
+            
+            # Give owner some BNB for gas fees
+            print(f"    [DEBUG] Setting owner balance for gas...")
+            env.w3.provider.make_request('anvil_setBalance', [owner_address, hex(10**18)])  # 1 BNB
+            
+            # Impersonate owner account
+            print(f"    [DEBUG] Impersonating owner...")
+            env.w3.provider.make_request('anvil_impersonateAccount', [owner_address])
+            
+            # ERC721 approve function selector: 0x095ea7b3
+            # approve(address to, uint256 tokenId)
+            approve_selector = bytes.fromhex('095ea7b3')
+            approve_data = '0x' + approve_selector.hex() + encode(['address', 'uint256'], [approved_address, token_id]).hex()
+            
+            print(f"    [DEBUG] Calling approve()...")
+            # Send approve transaction
+            response = env.w3.provider.make_request(
+                'eth_sendTransaction',
+                [{
+                    'from': owner_address,
+                    'to': nft_address,
+                    'data': approve_data,
+                    'gas': hex(100000),
+                    'gasPrice': hex(3000000000)
+                }]
+            )
+            
+            # Check response
+            if 'result' not in response:
+                print(f"    [DEBUG] Approve transaction failed: {response.get('error', 'Unknown error')}")
+                return False
+            
+            tx_hash = response['result']
+            print(f"    [DEBUG] Approve tx hash: {tx_hash}")
+            
+            # Wait for confirmation
+            max_attempts = 20
+            for i in range(max_attempts):
+                receipt = env.w3.eth.get_transaction_receipt(tx_hash)
+                if receipt is not None:
+                    if receipt['status'] == 1:
+                        print(f"    [DEBUG] Approve transaction confirmed")
+                        break
+                    else:
+                        print(f"    [DEBUG] Approve transaction failed (status=0)")
+                        return False
+                time.sleep(0.1)
+            else:
+                print(f"    [DEBUG] Approve transaction not confirmed after {max_attempts} attempts")
+                return False
+            
+            # Stop impersonating
+            env.w3.provider.make_request('anvil_stopImpersonatingAccount', [owner_address])
+            
+            # Verify approval
+            print(f"    [DEBUG] Verifying approval...")
+            # getApproved(uint256 tokenId) selector: 0x081812fc
+            get_approved_data = '0x081812fc' + encode(['uint256'], [token_id]).hex()
+            result = env.w3.eth.call({
+                'to': nft_address,
+                'data': get_approved_data
+            })
+            actual_approved = '0x' + result.hex()[-40:]
+            actual_approved = to_checksum_address(actual_approved)
+            print(f"    [DEBUG] Actual approved address after setting: {actual_approved}")
+            print(f"    [DEBUG] Expected: {approved_address}")
+            print(f"    [DEBUG] Match: {actual_approved.lower() == approved_address.lower()}")
+            
+            return actual_approved.lower() == approved_address.lower()
+            
+        except Exception as e:
+            print(f"    [DEBUG] Error setting NFT approval: {e}")
+            import traceback
+            traceback.print_exc()
+            # Stop impersonating in case of error
+            try:
+                env.w3.provider.make_request('anvil_stopImpersonatingAccount', [owner_address])
+            except:
+                pass
+            return False
     
     def _create_validator(self, params: Dict[str, Any]):
         """
