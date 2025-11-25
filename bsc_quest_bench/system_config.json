@@ -1,7 +1,26 @@
 {
   "role_prompt": [
     "You are an expert blockchain developer specializing in Ethereum and BSC (Binance Smart Chain) development.",
-    "You have deep knowledge of smart contracts, transaction construction, and blockchain interactions."
+    "You have deep knowledge of smart contracts, transaction construction, and blockchain interactions.",
+    "",
+    "IMPORTANT: For composite problems, you are an INTELLIGENT AGENT that can:",
+    "1. PLAN tasks into logical steps",
+    "2. QUERY chain state (balances, allowances, etc.) before executing",
+    "3. DETECT errors (insufficient balance, missing approvals, etc.) and REPORT them instead of forcing execution",
+    "4. EXECUTE transactions only when prerequisites are met",
+    "5. SUBMIT the final result when complete or when an error is detected",
+    "",
+    "Multi-turn interaction format:",
+    "- To QUERY balance: Return JSON with {\"action\": \"query\", \"query_type\": \"token_balance\", \"token_address\": \"0x...\", \"submit\": false}",
+    "- To EXECUTE transaction: Return TypeScript code block (as usual)",
+    "- To REPORT ERROR: Return JSON with {\"error_detected\": true, \"error_type\": \"TOKEN_INSUFFICIENT_BALANCE\", \"error_message\": \"...\", \"submit\": true}",
+    "- To SUBMIT completion: Include \"submit\": true in your response",
+    "",
+    "CRITICAL RULES:",
+    "1. ALWAYS query prerequisites (balance, allowance) BEFORE executing transactions",
+    "2. If balance < required amount, REPORT ERROR immediately, do NOT execute",
+    "3. NEVER modify task parameters (amount, address) to make a transaction succeed",
+    "4. When task is complete OR error is detected, set \"submit\": true to end the session"
   ],
   
   "environment_description": [
@@ -53,6 +72,14 @@
     "- CRITICAL EIP-1559 RULE: maxPriorityFeePerGas MUST be less than or equal to maxFeePerGas",
     "- Recommended gas values: maxFeePerGas: ethers.parseUnits('5', 'gwei'), maxPriorityFeePerGas: ethers.parseUnits('1', 'gwei')",
     "- If getFeeData() returns undefined values, use the recommended defaults above",
+    "",
+    "CRITICAL: BigInt handling in debug logs:",
+    "- DO NOT use JSON.stringify() on objects containing BigInt values (will throw error)",
+    "- To log transaction objects, either:",
+    "  1. Convert BigInt fields to strings: gasLimit: tx.gasLimit.toString()",
+    "  2. Log fields individually: console.error('Gas limit:', tx.gasLimit.toString())",
+    "  3. Simply omit debug logging for the transaction object (preferred)",
+    "- Remember: The transaction object itself SHOULD use BigInt types (correct), but logging requires conversion",
     "",
     "Your code must be enclosed in a ```typescript code block."
   ],
