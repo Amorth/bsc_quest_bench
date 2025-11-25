@@ -409,7 +409,29 @@ class QuestController:
     
     async def run(self) -> Dict[str, Any]:
         """
-        Run single round evaluation
+        Run evaluation (single-round for atomic, multi-round for composite)
+        
+        Returns:
+            Evaluation result dictionary
+        """
+        # Check if this is a composite problem
+        is_composite = self.question.get('category') == 'composite_problems'
+        
+        # In test mode, always use single-turn evaluation (even for composite problems)
+        if self.test_mode:
+            print(f"🧪 Test Mode: Using test script instead of LLM")
+            return await self.run_single_turn()
+        
+        if is_composite:
+            # Multi-round LLM evaluation for composite problems
+            return await self.run_multi_turn()
+        else:
+            # Single-round evaluation for atomic problems
+            return await self.run_single_turn()
+    
+    async def run_single_turn(self) -> Dict[str, Any]:
+        """
+        Run single round evaluation (for atomic problems)
         
         Returns:
             Evaluation result dictionary
@@ -525,6 +547,32 @@ class QuestController:
             if operation_type == 'query':
                 self._setup_query_operation(env, self.generated_params)
             
+            # 5.5 Setup for composite_approve_transferfrom: pre-set allowance
+            if self.question.get('id') == 'composite_approve_transferfrom':
+                print("🔧 Setting up allowance for composite_approve_transferfrom...")
+                token_address = self.generated_params.get('token_address')
+                from_address = self.generated_params.get('from_address')  # agent
+                spender_address = self.generated_params.get('spender_address')  # also agent in this case
+                amount = self.generated_params.get('amount', 50.0)
+                token_decimals = self.generated_params.get('token_decimals', 18)
+                
+                # Set allowance to 2x the amount to allow transferFrom and still show decrease
+                allowance_amount_wei = int(amount * 2 * (10 ** token_decimals))
+                
+                success = self._set_erc20_allowance_via_approve(
+                    env,
+                    token_address,
+                    from_address,
+                    spender_address,
+                    allowance_amount_wei
+                )
+                
+                if success:
+                    print(f"   ✅ Allowance set: {amount * 2} tokens (2x transfer amount)")
+                else:
+                    print(f"   ⚠️  Warning: Failed to set allowance")
+                print()
+            
             # 6. Execute code to generate transaction object
             print("⚙️  Executing TypeScript code...")
             from .skill_manager.ts_skill_manager import TypeScriptSkillManager
@@ -604,8 +652,131 @@ class QuestController:
             implementation_address = None
             expected_value = None
             
+            # Special handling for composite problems
+            if self.question.get('category') == 'composite_problems':
+                # Extract token_address from transaction
+                token_address = tx.get('to')  # The contract being called
+                
+                tx_data = tx.get('data', '')
+                
+                # Extract parameters based on function selector
+                # transfer(address to, uint256 amount) - selector: 0xa9059cbb
+                if tx_data and tx_data.startswith('0xa9059cbb') and len(tx_data) >= 138:
+                    # Extract to_address (bytes 4-36 after selector)
+                    to_address_hex = '0x' + tx_data[34:74]  # Remove leading zeros
+                    from eth_utils import to_checksum_address
+                    target_address_for_token = to_checksum_address(to_address_hex)
+                    print(f"🔗 Composite problem (transfer) detected:")
+                    print(f"   Token address: {token_address}")
+                    print(f"   Target address: {target_address_for_token}")
+                
+                # approve(address spender, uint256 amount) - selector: 0x095ea7b3
+                elif tx_data and tx_data.startswith('0x095ea7b3') and len(tx_data) >= 138:
+                    # Extract spender_address (bytes 4-36 after selector)
+                    spender_hex = '0x' + tx_data[34:74]  # Remove leading zeros
+                    from eth_utils import to_checksum_address
+                    spender_address = to_checksum_address(spender_hex)
+                    print(f"🔗 Composite problem (approve) detected:")
+                    print(f"   Token address: {token_address}")
+                    print(f"   Spender address: {spender_address}")
+                
+                # transferFrom(address from, address to, uint256 tokenId/amount) - selector: 0x23b872dd
+                # This could be ERC721 or ERC20 transferFrom - need to distinguish by atomic_operations
+                elif tx_data and tx_data.startswith('0x23b872dd') and len(tx_data) >= 202:
+                    # Check if this is ERC20 or ERC721 by looking at atomic_operations
+                    composite_structure = self.question.get('composite_structure', {})
+                    atomic_ops = [op.get('atomic_id') for op in composite_structure.get('atomic_operations', [])]
+                    
+                    if 'erc20_transferfrom_basic' in atomic_ops:
+                        # ERC20 transferFrom
+                        # Extract from_address (bytes 4-36 after selector)
+                        from_address_hex = '0x' + tx_data[34:74]
+                        from eth_utils import to_checksum_address
+                        from_address = to_checksum_address(from_address_hex)
+                        
+                        # Extract to_address (bytes 36-68 after selector)
+                        to_address_hex = '0x' + tx_data[98:138]
+                        target_address_for_token = to_checksum_address(to_address_hex)
+                        
+                        # Spender is the agent (executing the transferFrom)
+                        spender_address = self.generated_params.get('spender_address') or env_info.get('test_address')
+                        
+                        print(f"🔗 Composite problem (ERC20 transferFrom) detected:")
+                        print(f"   Token address: {token_address}")
+                        print(f"   From address: {from_address}")
+                        print(f"   Target address: {target_address_for_token}")
+                        print(f"   Spender address (agent): {spender_address}")
+                    elif 'erc721_transfer' in atomic_ops:
+                        # NFT transfer (ERC721 transferFrom)
+                        # Extract tokenId (bytes 68-100 after selector)
+                        token_id_hex = tx_data[138:202]
+                        nft_token_id = int(token_id_hex, 16)
+                        nft_address = token_address
+                        nft_type = 'erc721'
+                        print(f"🔗 Composite problem (NFT transfer) detected:")
+                        print(f"   NFT address: {nft_address}")
+                        print(f"   Token ID: {nft_token_id}")
+                    else:
+                        print(f"⚠️  Unknown transferFrom type")
+                        target_address_for_token = self.generated_params.get('to_address')
+                
+                # deposit(uint256 _amount) - selector: 0xb6b55f25 (Staking)
+                elif tx_data and tx_data.startswith('0xb6b55f25') and len(tx_data) >= 74:
+                    # Staking deposit
+                    pool_address = tx.get('to', '')
+                    token_address = self.generated_params.get('token_address', '')
+                    print(f"🔗 Composite problem (Staking) detected:")
+                    print(f"   Pool address: {pool_address}")
+                    print(f"   Token address: {token_address}")
+                
+                # swapExactETHForTokens - selector: 0x7ff36ab5 (PancakeSwap Swap)
+                elif tx_data and tx_data.startswith('0x7ff36ab5'):
+                    # Swap BNB for tokens
+                    token_address = self.generated_params.get('token_address', '')
+                    token_out_address = token_address  # Output token
+                    value = tx.get('value', 0)
+                    if isinstance(value, str):
+                        value = int(value)
+                    print(f"🔗 Composite problem (Swap BNB->Token) detected:")
+                    print(f"   Router address: {tx.get('to', '')}")
+                    print(f"   Token out: {token_out_address}")
+                    print(f"   BNB amount: {value / 10**18:.6f} BNB")
+                
+                # deposit() - selector: 0xd0e30db0 (WBNB Deposit)
+                elif tx_data and tx_data.startswith('0xd0e30db0'):
+                    # WBNB deposit (wrap BNB)
+                    wbnb_address = tx.get('to', '')
+                    token_address = wbnb_address  # WBNB is the token
+                    value = tx.get('value', 0)
+                    if isinstance(value, str):
+                        value = int(value)
+                    print(f"🔗 Composite problem (WBNB Deposit) detected:")
+                    print(f"   WBNB address: {wbnb_address}")
+                    print(f"   BNB amount: {value / 10**18:.6f} BNB")
+                
+                # harvest() - selector: 0x4641257d (Harvest Rewards)
+                elif tx_data and tx_data.startswith('0x4641257d'):
+                    # Harvest rewards
+                    pool_address = tx.get('to', '')
+                    token_address = self.generated_params.get('reward_token_address', '')
+                    print(f"🔗 Composite problem (Harvest Rewards) detected:")
+                    print(f"   Pool address: {pool_address}")
+                    print(f"   Reward token address: {token_address}")
+                
+                else:
+                    # Fallback to generated params
+                    target_address_for_token = self.generated_params.get('to_address')
+                    spender_address = self.generated_params.get('spender_address')
+                    nft_address = self.generated_params.get('nft_address')
+                    nft_token_id = self.generated_params.get('token_id')
+                    if nft_address and nft_token_id is not None:
+                        nft_type = 'erc721'
+                    print(f"🔗 Composite problem detected:")
+                    print(f"   Token address: {token_address}")
+                    print(f"   Target/Spender address: {target_address_for_token or spender_address}")
+            
             # Special handling: erc20_transferfrom_basic needs to be checked before erc20_operations
-            if self.question.get('id') == 'erc20_transferfrom_basic':
+            elif self.question.get('id') == 'erc20_transferfrom_basic':
                 # TransferFrom: track from_address balance, to_address balance, and allowance
                 token_address = self.generated_params.get('token_address')
                 from_address = self.generated_params.get('from_address')  # from_address (token owner) - for validation
@@ -1237,6 +1408,523 @@ class QuestController:
             return self.validator_class(**params)
         else:
             raise ValueError("validator_class must be callable")
+    
+    async def run_multi_turn(self) -> Dict[str, Any]:
+        """
+        Run multi-turn evaluation (for composite problems)
+        
+        LLM can:
+        1. Plan tasks
+        2. Execute subtasks step by step
+        3. Query chain state
+        4. Detect errors and report
+        5. Submit when complete (submit: true)
+        
+        Returns:
+            Evaluation result dictionary
+        """
+        print("="*80)
+        print("BSC Quest Bench - Multi-Turn Evaluation (Composite Problem)")
+        print("="*80)
+        print(f"Question ID: {self.question['id']}")
+        print(f"Model: {self.model_name}")
+        print(f"Difficulty: {self.question['difficulty']}")
+        
+        # Get interaction config
+        interaction_config = self.question.get('composite_structure', {}).get('interaction_config', {})
+        optimal_steps = interaction_config.get('optimal_steps', 3)
+        max_rounds_multiplier = interaction_config.get('max_rounds_multiplier', 2)
+        max_rounds = optimal_steps * max_rounds_multiplier
+        
+        print(f"Optimal Steps: {optimal_steps}")
+        print(f"Max Rounds: {max_rounds} ({optimal_steps} × {max_rounds_multiplier})")
+        print("="*80)
+        print()
+        
+        self.result['start_time'] = datetime.now().isoformat()
+        self.result['interaction_history'] = []
+        self.result['total_rounds'] = 0
+        self.result['optimal_steps'] = optimal_steps
+        self.result['max_rounds'] = max_rounds
+        
+        # 1. Start environment
+        should_stop_env = False
+        if self.reuse_env:
+            print("🔧 Reusing existing environment...")
+            env = self.reuse_env
+            env_info = self._get_env_info(env)
+            print()
+        else:
+            print("🔧 Starting new environment...")
+            env = QuestEnvironment(fork_url=self.fork_url)
+            env_info = env.start()
+            should_stop_env = True
+        
+        # Regenerate environment-dependent parameters
+        self._regenerate_env_parameters(env)
+        
+        try:
+            # 2. Display generated parameters
+            print("📝 Generated Natural Language Prompt:")
+            system_prompt = self._generate_system_prompt()
+            print(f"   \"{self.result['natural_language_prompt']}\"")
+            
+            print(f"\n📊 Generated Parameters:")
+            for param_name, param_value in self.generated_params.items():
+                print(f"   - {param_name}: {param_value}")
+            print()
+            
+            # 3. Add multi-turn specific instructions to system prompt
+            multi_turn_instructions = f"""
+
+MULTI-TURN INTERACTION RULES:
+- You have a MAXIMUM of {max_rounds} rounds to complete this task
+- The OPTIMAL solution requires {optimal_steps} steps
+- Your score will be: base_score × (optimal_steps / actual_steps) = base_score × ({optimal_steps} / your_steps)
+- IMPORTANT: Complete the task in as few steps as possible to maximize your score
+- When you finish or detect an error, ALWAYS set "submit": true to end the session
+- If you reach round {max_rounds} without submitting, the system will force submission
+
+Example response formats:
+1. To query: {{"action": "query", "query_type": "token_balance", "token_address": "0x...", "submit": false}}
+2. To execute: Return TypeScript code block
+3. To submit completion: {{"action": "complete", "submit": true}}
+4. To report error: {{"error_detected": true, "error_type": "TOKEN_INSUFFICIENT_BALANCE", "error_message": "...", "submit": true}}
+"""
+            system_prompt = system_prompt + multi_turn_instructions
+            
+            # 3. Initialize conversation
+            messages = [SystemMessage(content=system_prompt)]
+            
+            # 4. Multi-turn interaction loop
+            final_submission = None
+            
+            for round_num in range(1, max_rounds + 1):
+                print(f"\n{'='*80}")
+                print(f"🔄 Round {round_num}/{max_rounds}")
+                print(f"{'='*80}\n")
+                
+                # Call LLM
+                print(f"🤖 Calling LLM (Round {round_num})...")
+                response = await self.llm.ainvoke(messages)
+                response_content = response.content
+                
+                print(f"✅ LLM response received ({len(response_content)} characters)\n")
+                
+                # Store in history
+                round_data = {
+                    'round': round_num,
+                    'llm_response': response_content,
+                    'timestamp': datetime.now().isoformat()
+                }
+                
+                # Parse response
+                # LLM should return JSON with action/error_detected/submit fields
+                parsed_response = self._parse_llm_response(response_content)
+                round_data['parsed_response'] = parsed_response
+                
+                print(f"📋 Parsed Response:")
+                print(f"   Action: {parsed_response.get('action', 'execute')}")
+                print(f"   Submit: {parsed_response.get('submit', False)}")
+                print(f"   Error Detected: {parsed_response.get('error_detected', False)}")
+                print()
+                
+                # Check if LLM wants to submit (without any action)
+                if parsed_response.get('submit') and parsed_response.get('action') not in ['execute', 'query']:
+                    print("✅ LLM submitted the task (no action)\n")
+                    final_submission = parsed_response
+                    self.result['interaction_history'].append(round_data)
+                    self.result['total_rounds'] = round_num
+                    break
+                
+                # Execute the action
+                action_result = await self._execute_action(
+                    parsed_response, 
+                    env, 
+                    env_info
+                )
+                
+                round_data['action_result'] = action_result
+                self.result['interaction_history'].append(round_data)
+                
+                # Check if this was the final action (submit after execute)
+                if parsed_response.get('submit'):
+                    print("✅ LLM submitted after executing action\n")
+                    final_submission = parsed_response
+                    final_submission['final_action_result'] = action_result
+                    self.result['total_rounds'] = round_num
+                    break
+                
+                # Add result to conversation
+                result_message = self._format_action_result(action_result)
+                messages.append(AIMessage(content=response_content))
+                messages.append(HumanMessage(content=result_message))
+                
+                print(f"📤 Sent result back to LLM\n")
+            
+            else:
+                # Max rounds reached - force submission and validate
+                print(f"⚠️  Max rounds ({max_rounds}) reached without explicit submission")
+                print(f"   Forcing submission and validating final state...\n")
+                self.result['total_rounds'] = max_rounds
+                
+                # Force submission with whatever we have
+                final_submission = {
+                    'submit': True,
+                    'forced': True,
+                    'error_detected': False
+                }
+            
+            # 5. Validation
+            if final_submission:
+                print("\n" + "="*80)
+                print("🔍 Validating final submission...")
+                print("="*80 + "\n")
+                
+                # Create validator
+                validator = self._create_validator(self.generated_params)
+                
+                # Get final chain state
+                final_state = self._get_final_chain_state(env, env_info)
+                
+                # Validate
+                validation_result = validator.validate(
+                    final_submission=final_submission,
+                    chain_state=final_state,
+                    task_params=self.generated_params,
+                    interaction_history=self.result['interaction_history']
+                )
+                
+                # Apply step-based score decay
+                base_score = validation_result.get('score', 0)
+                actual_steps = self.result['total_rounds']
+                
+                # Calculate decay factor
+                decay_factor = min(1.0, optimal_steps / actual_steps) if actual_steps > 0 else 0
+                final_score = base_score * decay_factor
+                
+                print(f"\n📉 Step-Based Score Adjustment:")
+                print(f"   Base Score: {base_score:.2f}")
+                print(f"   Optimal Steps: {optimal_steps}")
+                print(f"   Actual Steps: {actual_steps}")
+                print(f"   Decay Factor: {decay_factor:.3f} ({optimal_steps}/{actual_steps})")
+                print(f"   Final Score: {final_score:.2f}")
+                
+                # Update validation result with decayed score
+                validation_result['base_score'] = base_score
+                validation_result['decay_factor'] = decay_factor
+                validation_result['optimal_steps'] = optimal_steps
+                validation_result['actual_steps'] = actual_steps
+                validation_result['score'] = final_score
+                validation_result['passed'] = final_score >= 60.0
+                
+                self.result['execution_success'] = True
+                self.result['validation_result'] = validation_result
+                self.result['final_submission'] = final_submission
+                
+                print()
+                print("="*80)
+                print("📊 Evaluation Result")
+                print("="*80)
+                print(f"Validation Passed: {'✅' if validation_result.get('passed') else '❌'}")
+                print(f"Base Score: {validation_result.get('base_score', 0):.2f}/{validation_result.get('max_score', 100)}")
+                print(f"Final Score: {validation_result.get('score', 0):.2f}/{validation_result.get('max_score', 100)} (after {decay_factor:.1%} decay)")
+                print(f"Steps: {actual_steps} used (optimal: {optimal_steps})")
+                print(f"Status: {validation_result.get('status', 'unknown')}")
+                print("="*80)
+            
+        except Exception as e:
+            print(f"\n❌ Error during multi-turn evaluation: {e}")
+            import traceback
+            traceback.print_exc()
+            self.result['error'] = str(e)
+            self.result['execution_success'] = False
+            
+        finally:
+            # Cleanup
+            if should_stop_env:
+                print("\n🧹 Cleaning up environment...")
+                env.stop()
+                print("✓ Anvil process terminated")
+                print("✓ Environment cleaned up")
+        
+        self.result['end_time'] = datetime.now().isoformat()
+        return self.result
+    
+    def _get_env_info(self, env) -> Dict[str, Any]:
+        """Get environment info from existing environment"""
+        return {
+            'rpc_url': f'http://127.0.0.1:{env.anvil_port}',
+            'chain_id': env.chain_id,
+            'test_address': env.test_address,
+            'test_private_key': env.test_account.key.hex(),
+            'simple_staking_address': getattr(env, 'simple_staking_address', None),
+            'simple_lp_staking_address': getattr(env, 'simple_lp_staking_address', None),
+            'simple_reward_pool_address': getattr(env, 'simple_reward_pool_address', None),
+            'erc1363_token_address': getattr(env, 'erc1363_token_address', None),
+            'erc1155_token_address': getattr(env, 'erc1155_token_address', None),
+            'flashloan_contract_address': getattr(env, 'flashloan_contract_address', None),
+            'simple_counter_address': getattr(env, 'simple_counter_address', None),
+            'donation_box_address': getattr(env, 'donation_box_address', None),
+            'message_board_address': getattr(env, 'message_board_address', None),
+            'proxy_address': getattr(env, 'proxy_address', None),
+            'implementation_address': getattr(env, 'implementation_address', None),
+            'fallback_receiver_address': getattr(env, 'fallback_receiver_address', None),
+            'rich_address': getattr(env, 'rich_address', None),
+            'erc721_test_nft_address': getattr(env, 'erc721_test_nft_address', None),
+        }
+    
+    def _parse_llm_response(self, response_content: str) -> Dict[str, Any]:
+        """Parse LLM response to extract action/error/submit fields"""
+        import re
+        
+        # PRIORITY 1: Check for TypeScript code block FIRST (most important for execution)
+        has_code = '```typescript' in response_content or '```ts' in response_content
+        has_submit = 'submit' in response_content.lower() and 'true' in response_content.lower()
+        
+        if has_code:
+            print(f"   [DEBUG] Detected TypeScript code block")
+            # Check if this is the final submission with code
+            if has_submit:
+                print(f"   [DEBUG] Detected submit=true WITH code - will execute then submit")
+                return {
+                    'action': 'execute',
+                    'code': response_content,
+                    'submit': True,  # Mark as final submission
+                    'error_detected': False
+                }
+            else:
+                return {
+                    'action': 'execute',
+                    'code': response_content,
+                    'submit': False,
+                    'error_detected': False
+                }
+        
+        # PRIORITY 2: Look for JSON code block (for queries and error reports)
+        json_match = re.search(r'```json\s*(\{.*?\})\s*```', response_content, re.DOTALL)
+        if json_match:
+            try:
+                parsed = json.loads(json_match.group(1))
+                print(f"   [DEBUG] Parsed from ```json block: {parsed}")
+                return parsed
+            except Exception as e:
+                print(f"   [DEBUG] Failed to parse ```json block: {e}")
+        
+        # PRIORITY 3: Look for raw JSON object
+        json_patterns = [
+            r'\{[^{}]*?"submit"\s*:\s*true[^{}]*?\}',  # Find any JSON with submit: true
+            r'\{[^{}]*?"error_detected"\s*:\s*true[^{}]*?\}',  # Find any JSON with error_detected: true
+            r'\{[^{}]*?"action"\s*:\s*"[^"]*?"[^{}]*?\}',  # Find any JSON with action field
+        ]
+        
+        for pattern in json_patterns:
+            json_match = re.search(pattern, response_content, re.DOTALL | re.IGNORECASE)
+            if json_match:
+                try:
+                    json_str = json_match.group(0)
+                    parsed = json.loads(json_str)
+                    print(f"   [DEBUG] Parsed from pattern {pattern[:30]}...: {parsed}")
+                    return parsed
+                except Exception as e:
+                    print(f"   [DEBUG] Failed to parse with pattern: {e}")
+                    continue
+        
+        # PRIORITY 4: Check for submit keyword only
+        response_lower = response_content.lower()
+        if 'submit' in response_lower and 'true' in response_lower:
+            print(f"   [DEBUG] Detected 'submit: true' in text")
+            return {
+                'action': 'submit',
+                'submit': True,
+                'error_detected': 'error' in response_lower
+            }
+        
+        # Default: assume it's code execution
+        print(f"   [DEBUG] Defaulting to execute action")
+        return {
+            'action': 'execute',
+            'code': response_content,
+            'submit': False,
+            'error_detected': False
+        }
+    
+    async def _execute_action(self, parsed_response: Dict[str, Any], env, env_info: Dict[str, Any]) -> Dict[str, Any]:
+        """Execute LLM's requested action"""
+        action = parsed_response.get('action', 'execute')
+        
+        if action == 'query':
+            # Query chain state
+            return self._handle_query_action(parsed_response, env, env_info)
+        elif action == 'execute':
+            # Execute transaction
+            return await self._handle_execute_action(parsed_response, env, env_info)
+        else:
+            return {'success': False, 'error': f'Unknown action: {action}'}
+    
+    def _handle_query_action(self, parsed_response: Dict[str, Any], env, env_info: Dict[str, Any]) -> Dict[str, Any]:
+        """Handle query action (e.g., check balance)"""
+        query_type = parsed_response.get('query_type', 'balance')
+        
+        if query_type == 'balance' or query_type == 'token_balance':
+            token_address = parsed_response.get('token_address')
+            account_address = parsed_response.get('account_address', env_info['test_address'])
+            
+            if not token_address:
+                return {'success': False, 'error': 'token_address required for balance query'}
+            
+            try:
+                from eth_utils import to_checksum_address
+                token_addr = to_checksum_address(token_address)
+                account_addr = to_checksum_address(account_address)
+                
+                # Query ERC20 balance
+                data = '0x70a08231' + '000000000000000000000000' + account_addr[2:]
+                result = env.w3.eth.call({
+                    'to': token_addr,
+                    'data': data
+                })
+                balance = int(result.hex(), 16)
+                balance_ether = balance / (10**18)
+                
+                return {
+                    'success': True,
+                    'query_type': 'token_balance',
+                    'token_address': token_address,
+                    'account_address': account_address,
+                    'balance_wei': balance,
+                    'balance_tokens': balance_ether
+                }
+            except Exception as e:
+                return {'success': False, 'error': str(e)}
+        
+        return {'success': False, 'error': f'Unknown query type: {query_type}'}
+    
+    async def _handle_execute_action(self, parsed_response: Dict[str, Any], env, env_info: Dict[str, Any]) -> Dict[str, Any]:
+        """Handle execute action (execute transaction)"""
+        # Extract code from response
+        code = parsed_response.get('code', '')
+        
+        # Extract TypeScript code block
+        code_blocks = self.extract_code_blocks(code)
+        if not code_blocks:
+            return {'success': False, 'error': 'No code block found'}
+        
+        code = code_blocks[0]
+        
+        # Execute code
+        from .skill_manager.ts_skill_manager import TypeScriptSkillManager
+        
+        skill_manager = TypeScriptSkillManager(use_bun=True)
+        code_file = self._save_code_to_temp_file(code)
+        
+        try:
+            deployed_contracts = {
+                'simple_staking': env_info.get('simple_staking_address'),
+                'simple_lp_staking': env_info.get('simple_lp_staking_address'),
+                'simple_reward_pool': env_info.get('simple_reward_pool_address'),
+                'erc1363_token': env_info.get('erc1363_token_address'),
+                'erc1155_token': env_info.get('erc1155_token_address'),
+                'flashloan_contract': env_info.get('flashloan_contract_address'),
+                'simple_counter': env_info.get('simple_counter_address'),
+                'donation_box': env_info.get('donation_box_address'),
+                'message_board': env_info.get('message_board_address'),
+                'proxy': env_info.get('proxy_address'),
+                'implementation': env_info.get('implementation_address'),
+                'fallback_receiver': env_info.get('fallback_receiver_address'),
+                'rich_address': env_info.get('rich_address')
+            }
+            deployed_contracts = {k: v for k, v in deployed_contracts.items() if v is not None}
+            
+            tx_result = skill_manager.execute_skill(
+                code_file=code_file,
+                provider_url=env_info['rpc_url'],
+                agent_address=env_info['test_address'],
+                deployed_contracts=deployed_contracts
+            )
+            
+            if not tx_result.get('success'):
+                return {
+                    'success': False,
+                    'error': tx_result.get('error', 'Execution failed')
+                }
+            
+            # Execute transaction
+            tx = tx_result['tx_object']
+            executor = QuestExecutor(
+                w3=env.w3,
+                private_key=env_info['test_private_key']
+            )
+            
+            # Prepare transaction
+            from eth_utils import to_checksum_address
+            chain_id = env.w3.eth.chain_id
+            
+            transaction = {
+                'from': to_checksum_address(env_info['test_address']),
+                'to': to_checksum_address(tx['to']) if tx.get('to') else None,
+                'value': int(tx.get('value', 0)),
+                'gas': int(tx.get('gasLimit', tx.get('gas', 500000))),
+                'nonce': env.w3.eth.get_transaction_count(env_info['test_address']),
+                'chainId': chain_id,
+            }
+            
+            # Handle gas price
+            tx_type = tx.get('type', 0)
+            if tx_type == 2:
+                transaction['maxPriorityFeePerGas'] = int(tx.get('maxPriorityFeePerGas', 10**9))
+                transaction['maxFeePerGas'] = int(tx.get('maxFeePerGas', 2 * 10**9))
+                transaction['type'] = 2
+            else:
+                transaction['gasPrice'] = int(tx.get('gasPrice', 10**9))
+            
+            if 'data' in tx and tx['data']:
+                transaction['data'] = tx['data']
+            
+            # Sign and send
+            signed_tx = env.w3.eth.account.sign_transaction(transaction, env_info['test_private_key'])
+            tx_hash = env.w3.eth.send_raw_transaction(signed_tx.raw_transaction)
+            
+            # Wait for receipt
+            receipt = env.w3.eth.wait_for_transaction_receipt(tx_hash, timeout=30)
+            
+            return {
+                'success': True,
+                'tx_hash': tx_hash.hex(),
+                'block_number': receipt['blockNumber'],
+                'gas_used': receipt['gasUsed'],
+                'status': receipt['status']
+            }
+            
+        except Exception as e:
+            return {'success': False, 'error': str(e)}
+        finally:
+            import os
+            if os.path.exists(code_file):
+                os.unlink(code_file)
+    
+    def _format_action_result(self, action_result: Dict[str, Any]) -> str:
+        """Format action result as message for LLM"""
+        if not action_result.get('success'):
+            return f"Action failed: {action_result.get('error')}"
+        
+        if 'balance_tokens' in action_result:
+            # Query result
+            return f"Query result: Balance = {action_result['balance_tokens']} tokens ({action_result['balance_wei']} wei)"
+        elif 'tx_hash' in action_result:
+            # Transaction result
+            return f"Transaction executed successfully. Hash: {action_result['tx_hash']}, Block: {action_result['block_number']}, Gas: {action_result['gas_used']}, Status: {action_result['status']}"
+        else:
+            return f"Action completed: {json.dumps(action_result)}"
+    
+    def _get_final_chain_state(self, env, env_info: Dict[str, Any]) -> Dict[str, Any]:
+        """Get final chain state for validation"""
+        # TODO: Implement comprehensive state collection
+        return {
+            'block_number': env.w3.eth.block_number,
+            'agent_address': env_info['test_address'],
+            'agent_balance': env.w3.eth.get_balance(env_info['test_address'])
+        }
     
     def save_result(self, output_path: str):
         """

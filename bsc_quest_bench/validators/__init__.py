@@ -66,6 +66,7 @@ from .query_nft_balance_validator import QueryNFTBalanceValidator
 from .query_current_block_number_validator import QueryCurrentBlockNumberValidator
 from .query_gas_price_validator import QueryGasPriceValidator
 from .query_transaction_count_nonce_validator import QueryTransactionCountNonceValidator
+from .composite_validator import CompositeValidator, validate_composite
 
 __all__ = [
     'BNBTransferValidator',
@@ -129,6 +130,8 @@ __all__ = [
     'QueryNFTBalanceValidator',
     'QueryCurrentBlockNumberValidator',
     'QueryGasPriceValidator',
-    'QueryTransactionCountNonceValidator'
+    'QueryTransactionCountNonceValidator',
+    'CompositeValidator',
+    'validate_composite'
 ]
 
