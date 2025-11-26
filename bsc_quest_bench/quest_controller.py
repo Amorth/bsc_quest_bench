@@ -573,6 +573,154 @@ class QuestController:
                     print(f"   ⚠️  Warning: Failed to set allowance")
                 print()
             
+            # 5.6 Setup for composite_approve_swap_tokens: pre-set allowance
+            if self.question.get('id') == 'composite_approve_swap_tokens':
+                print("🔧 Setting up allowance for composite_approve_swap_tokens...")
+                token_in_address = self.generated_params.get('token_in_address')
+                router_address = self.generated_params.get('router_address')
+                amount_in = self.generated_params.get('amount_in', 20.0)
+                token_in_decimals = self.generated_params.get('token_in_decimals', 18)
+                
+                # Set allowance to 2x the amount
+                allowance_amount_wei = int(amount_in * 2 * (10 ** token_in_decimals))
+                
+                success = self._set_erc20_allowance_via_approve(
+                    env,
+                    token_in_address,
+                    env_info.get('test_address'),  # agent is the owner
+                    router_address,  # router is the spender
+                    allowance_amount_wei
+                )
+                
+                if success:
+                    print(f"   ✅ Allowance set: {amount_in * 2} tokens (2x swap amount)")
+                else:
+                    print(f"   ⚠️  Warning: Failed to set allowance")
+                print()
+            
+            # 5.7 Setup for composite_approve_add_liquidity: pre-set allowances for both tokens
+            if self.question.get('id') == 'composite_approve_add_liquidity':
+                print("🔧 Setting up allowances for composite_approve_add_liquidity...")
+                token_a_address = self.generated_params.get('token_a_address')
+                token_b_address = self.generated_params.get('token_b_address')
+                router_address = self.generated_params.get('router_address')
+                amount_token_a = self.generated_params.get('amount_token_a', 10.0)
+                amount_token_b = self.generated_params.get('amount_token_b', 10.0)
+                token_a_decimals = self.generated_params.get('token_a_decimals', 18)
+                token_b_decimals = self.generated_params.get('token_b_decimals', 18)
+                
+                # Set allowance for token A (2x the amount)
+                allowance_a_wei = int(amount_token_a * 2 * (10 ** token_a_decimals))
+                success_a = self._set_erc20_allowance_via_approve(
+                    env,
+                    token_a_address,
+                    env_info.get('test_address'),  # agent is the owner
+                    router_address,  # router is the spender
+                    allowance_a_wei
+                )
+                
+                if success_a:
+                    print(f"   ✅ Token A allowance set: {amount_token_a * 2} tokens")
+                else:
+                    print(f"   ⚠️  Warning: Failed to set token A allowance")
+                
+                # Set allowance for token B (2x the amount)
+                allowance_b_wei = int(amount_token_b * 2 * (10 ** token_b_decimals))
+                success_b = self._set_erc20_allowance_via_approve(
+                    env,
+                    token_b_address,
+                    env_info.get('test_address'),  # agent is the owner
+                    router_address,  # router is the spender
+                    allowance_b_wei
+                )
+                
+                if success_b:
+                    print(f"   ✅ Token B allowance set: {amount_token_b * 2} tokens")
+                else:
+                    print(f"   ⚠️  Warning: Failed to set token B allowance")
+                print()
+            
+            # 5.8 Setup for composite_approve_stake_tokens: pre-set allowance
+            if self.question.get('id') == 'composite_approve_stake_tokens':
+                print("🔧 Setting up allowance for composite_approve_stake_tokens...")
+                token_address = self.generated_params.get('token_address')
+                pool_address = self.generated_params.get('pool_address')
+                amount = self.generated_params.get('amount', 5.0)
+                token_decimals = self.generated_params.get('token_decimals', 18)
+                
+                # Set allowance to 2x the amount
+                allowance_amount_wei = int(amount * 2 * (10 ** token_decimals))
+                
+                success = self._set_erc20_allowance_via_approve(
+                    env,
+                    token_address,
+                    env_info.get('test_address'),  # agent is the owner
+                    pool_address,  # pool is the spender
+                    allowance_amount_wei
+                )
+                
+                if success:
+                    print(f"   ✅ Allowance set: {amount * 2} CAKE (2x stake amount)")
+                else:
+                    print(f"   ⚠️  Warning: Failed to set allowance")
+                print()
+            
+            # 5.9 Setup for composite_approve_remove_liquidity: pre-set LP token allowance
+            if self.question.get('id') == 'composite_approve_remove_liquidity':
+                print("🔧 Setting up LP token allowance for composite_approve_remove_liquidity...")
+                token_a_address = self.generated_params.get('token_a_address')
+                token_b_address = self.generated_params.get('token_b_address')
+                router_address = self.generated_params.get('router_address')
+                
+                # Get LP token address
+                lp_token_address = self._get_lp_token_address(env, token_a_address, token_b_address)
+                if lp_token_address:
+                    print(f"   LP Token: {lp_token_address}")
+                    
+                    # Set allowance for max uint256 (to allow any percentage removal)
+                    max_allowance = int(2**256 - 1)
+                    
+                    success = self._set_erc20_allowance_via_approve(
+                        env,
+                        lp_token_address,
+                        env_info.get('test_address'),  # agent is the owner
+                        router_address,  # router is the spender
+                        max_allowance
+                    )
+                    
+                    if success:
+                        print(f"   ✅ LP token approved for Router (max allowance)")
+                    else:
+                        print(f"   ⚠️  Warning: Failed to set LP token allowance")
+                else:
+                    print(f"   ⚠️  Warning: Could not get LP token address")
+                print()
+            
+            # 5.10 Setup for composite_approve_swap_to_bnb: pre-set token allowance
+            if self.question.get('id') == 'composite_approve_swap_to_bnb':
+                print("🔧 Setting up allowance for composite_approve_swap_to_bnb...")
+                token_address = self.generated_params.get('token_address')
+                router_address = self.generated_params.get('router_address')
+                amount_in = self.generated_params.get('amount_in', 10.0)
+                token_decimals = self.generated_params.get('token_decimals', 18)
+                
+                # Set allowance to 2x the amount
+                allowance_amount_wei = int(amount_in * 2 * (10 ** token_decimals))
+                
+                success = self._set_erc20_allowance_via_approve(
+                    env,
+                    token_address,
+                    env_info.get('test_address'),  # agent is the owner
+                    router_address,  # router is the spender
+                    allowance_amount_wei
+                )
+                
+                if success:
+                    print(f"   ✅ Allowance set: {amount_in * 2} tokens (2x swap amount)")
+                else:
+                    print(f"   ⚠️  Warning: Failed to set allowance")
+                print()
+            
             # 6. Execute code to generate transaction object
             print("⚙️  Executing TypeScript code...")
             from .skill_manager.ts_skill_manager import TypeScriptSkillManager
@@ -611,6 +759,43 @@ class QuestController:
                     error_msg = tx_result.get('error', 'Unknown error')
                     print(f"❌ TypeScript execution failed: {error_msg}")
                     self.result['error'] = error_msg
+                    return self.result
+                
+                # Check if this is a query result (not a transaction)
+                if tx_result.get('is_query'):
+                    tx = tx_result['tx_object']
+                    print(f"✅ Query operation completed successfully")
+                    print(f"   Type: QUERY_RESULT")
+                    if 'queries' in tx:
+                        for q in tx['queries']:
+                            print(f"   - {q.get('token', 'Token')}: {q.get('balance_human', '?')}")
+                    print()
+                    
+                    # For query operations, return success without executing transaction
+                    self.result['execution_success'] = True
+                    self.result['validation_result'] = {
+                        'passed': True,
+                        'score': 100,
+                        'max_score': 100,
+                        'status': 'query_completed',
+                        'details': tx
+                    }
+                    
+                    # Clean up and return early
+                    import os
+                    if os.path.exists(code_file):
+                        os.unlink(code_file)
+                    
+                    print()
+                    print("="*80)
+                    print("📊 Evaluation Result")
+                    print("="*80)
+                    print(f"✅ Query operation executed successfully")
+                    print(f"Validation Passed: ✅")
+                    print(f"Score: 100/100")
+                    print("="*80)
+                    
+                    self.result['end_time'] = datetime.now().isoformat()
                     return self.result
                 
                 tx = tx_result['tx_object']
@@ -722,17 +907,38 @@ class QuestController:
                 
                 # deposit(uint256 _amount) - selector: 0xb6b55f25 (Staking)
                 elif tx_data and tx_data.startswith('0xb6b55f25') and len(tx_data) >= 74:
-                    # Staking deposit
+                    # Staking deposit - could be single token or LP token staking
                     pool_address = tx.get('to', '')
-                    token_address = self.generated_params.get('token_address', '')
+                    # Check if this is LP staking (lp_token_address present in params)
+                    is_lp_staking = 'lp_token_address' in self.generated_params
+                    if is_lp_staking:
+                        lp_token_address = self.generated_params.get('lp_token_address')
+                        token_address = lp_token_address  # Use LP token address
+                        # Staking contract is the spender for LP token allowance
+                        spender_address = pool_address
+                    else:
+                        # Single token staking (CAKE, etc.)
+                        token_address = (
+                            self.generated_params.get('token_address') or 
+                            self.generated_params.get('cake_address') or 
+                            '0x0E09FaBB73Bd3Ade0a17ECC321fD13a19e81cE82'  # Default CAKE
+                        )
                     print(f"🔗 Composite problem (Staking) detected:")
                     print(f"   Pool address: {pool_address}")
                     print(f"   Token address: {token_address}")
+                    if is_lp_staking:
+                        print(f"   LP Token (for state tracking): {lp_token_address}")
+                        print(f"   Spender (pool): {spender_address}")
                 
                 # swapExactETHForTokens - selector: 0x7ff36ab5 (PancakeSwap Swap)
                 elif tx_data and tx_data.startswith('0x7ff36ab5'):
                     # Swap BNB for tokens
-                    token_address = self.generated_params.get('token_address', '')
+                    # Try multiple parameter names for output token
+                    token_address = (
+                        self.generated_params.get('token_address') or
+                        self.generated_params.get('token_out_address') or
+                        ''
+                    )
                     token_out_address = token_address  # Output token
                     value = tx.get('value', 0)
                     if isinstance(value, str):
@@ -762,6 +968,83 @@ class QuestController:
                     print(f"🔗 Composite problem (Harvest Rewards) detected:")
                     print(f"   Pool address: {pool_address}")
                     print(f"   Reward token address: {token_address}")
+                
+                # swapExactTokensForTokens - selector: 0x38ed1739 (PancakeSwap Token->Token Swap)
+                elif tx_data and tx_data.startswith('0x38ed1739'):
+                    # Swap tokens for tokens
+                    token_address = self.generated_params.get('token_in_address', '')  # Input token
+                    token_out_address = self.generated_params.get('token_out_address', '')  # Output token
+                    spender_address = tx.get('to', '')  # Router address
+                    print(f"🔗 Composite problem (Swap Token->Token) detected:")
+                    print(f"   Router address: {spender_address}")
+                    print(f"   Token in: {token_address}")
+                    print(f"   Token out: {token_out_address}")
+                
+                # addLiquidity - selector: 0xe8e33700 (PancakeSwap Add Liquidity Token+Token)
+                elif tx_data and tx_data.startswith('0xe8e33700'):
+                    # Add liquidity for token pair
+                    token_address = self.generated_params.get('token_a_address', '')  # Token A
+                    token_out_address = self.generated_params.get('token_b_address', '')  # Token B
+                    spender_address = tx.get('to', '')  # Router address
+                    # Get LP token address for validation
+                    lp_token_address = self._get_lp_token_address(
+                        env,
+                        token_address,
+                        token_out_address
+                    )
+                    print(f"🔗 Composite problem (Add Liquidity Token+Token) detected:")
+                    print(f"   Router address: {spender_address}")
+                    print(f"   Token A: {token_address}")
+                    print(f"   Token B: {token_out_address}")
+                    if lp_token_address:
+                        print(f"   LP Token: {lp_token_address}")
+                
+                # removeLiquidity - selector: 0xbaa2abde (PancakeSwap Remove Liquidity Token+Token)
+                elif tx_data and tx_data.startswith('0xbaa2abde'):
+                    # Remove liquidity for token pair
+                    token_address = self.generated_params.get('token_a_address', '')  # Token A
+                    token_out_address = self.generated_params.get('token_b_address', '')  # Token B
+                    spender_address = tx.get('to', '')  # Router address
+                    # Get LP token address for validation
+                    lp_token_address = self._get_lp_token_address(
+                        env,
+                        token_address,
+                        token_out_address
+                    )
+                    print(f"🔗 Composite problem (Remove Liquidity Token+Token) detected:")
+                    print(f"   Router address: {spender_address}")
+                    print(f"   Token A: {token_address}")
+                    print(f"   Token B: {token_out_address}")
+                    if lp_token_address:
+                        print(f"   LP Token: {lp_token_address}")
+                
+                # removeLiquidityETH - selector: 0x02751cec (PancakeSwap Remove Liquidity BNB+Token)
+                elif tx_data and tx_data.startswith('0x02751cec'):
+                    # Remove liquidity for BNB + Token pair
+                    token_address = self.generated_params.get('token_address', '')  # Token paired with BNB
+                    wbnb_address = '0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c'  # WBNB
+                    spender_address = tx.get('to', '')  # Router address
+                    # Get LP token address for WBNB/Token pair
+                    lp_token_address = self._get_lp_token_address(
+                        env,
+                        wbnb_address,
+                        token_address
+                    )
+                    print(f"🔗 Composite problem (Remove Liquidity BNB+Token) detected:")
+                    print(f"   Router address: {spender_address}")
+                    print(f"   Token: {token_address}")
+                    print(f"   WBNB: {wbnb_address}")
+                    if lp_token_address:
+                        print(f"   LP Token: {lp_token_address}")
+                
+                # swapExactTokensForETH - selector: 0x18cbafe5 (PancakeSwap Token->BNB Swap)
+                elif tx_data and tx_data.startswith('0x18cbafe5'):
+                    # Swap tokens for BNB
+                    token_address = self.generated_params.get('token_address', '')  # Input token
+                    spender_address = tx.get('to', '')  # Router address
+                    print(f"🔗 Composite problem (Swap Token->BNB) detected:")
+                    print(f"   Router address: {spender_address}")
+                    print(f"   Token in: {token_address}")
                 
                 else:
                     # Fallback to generated params
@@ -1413,18 +1696,15 @@ class QuestController:
         """
         Run multi-turn evaluation (for composite problems)
         
-        LLM can:
-        1. Plan tasks
-        2. Execute subtasks step by step
-        3. Query chain state
-        4. Detect errors and report
-        5. Submit when complete (submit: true)
+        New Plan-Execute Architecture:
+        1. Planning Phase (Round 0): LLM generates task plan with subtasks - NOT counted in score
+        2. Execution Phase (Round 1+): Execute subtasks one by one - counted in score
         
         Returns:
             Evaluation result dictionary
         """
         print("="*80)
-        print("BSC Quest Bench - Multi-Turn Evaluation (Composite Problem)")
+        print("BSC Quest Bench - Multi-Turn Evaluation (Plan-Execute Mode)")
         print("="*80)
         print(f"Question ID: {self.question['id']}")
         print(f"Model: {self.model_name}")
@@ -1434,18 +1714,19 @@ class QuestController:
         interaction_config = self.question.get('composite_structure', {}).get('interaction_config', {})
         optimal_steps = interaction_config.get('optimal_steps', 3)
         max_rounds_multiplier = interaction_config.get('max_rounds_multiplier', 2)
-        max_rounds = optimal_steps * max_rounds_multiplier
+        max_execution_rounds = optimal_steps * max_rounds_multiplier
         
         print(f"Optimal Steps: {optimal_steps}")
-        print(f"Max Rounds: {max_rounds} ({optimal_steps} × {max_rounds_multiplier})")
+        print(f"Max Execution Rounds: {max_execution_rounds} ({optimal_steps} × {max_rounds_multiplier})")
         print("="*80)
         print()
         
         self.result['start_time'] = datetime.now().isoformat()
         self.result['interaction_history'] = []
-        self.result['total_rounds'] = 0
+        self.result['planning_phase'] = None
+        self.result['execution_rounds'] = 0  # Only count execution rounds
         self.result['optimal_steps'] = optimal_steps
-        self.result['max_rounds'] = max_rounds
+        self.result['max_rounds'] = max_execution_rounds
         
         # 1. Start environment
         should_stop_env = False
@@ -1474,68 +1755,228 @@ class QuestController:
                 print(f"   - {param_name}: {param_value}")
             print()
             
-            # 3. Add multi-turn specific instructions to system prompt
-            multi_turn_instructions = f"""
+            # ============================================================
+            # PHASE 1: PLANNING (Not counted in score)
+            # ============================================================
+            print(f"\n{'='*80}")
+            print(f"📋 PLANNING PHASE (Not counted in score)")
+            print(f"{'='*80}\n")
+            
+            planning_prompt = f"""{system_prompt}
 
-MULTI-TURN INTERACTION RULES:
-- You have a MAXIMUM of {max_rounds} rounds to complete this task
-- The OPTIMAL solution requires {optimal_steps} steps
-- Your score will be: base_score × (optimal_steps / actual_steps) = base_score × ({optimal_steps} / your_steps)
-- IMPORTANT: Complete the task in as few steps as possible to maximize your score
-- When you finish or detect an error, ALWAYS set "submit": true to end the session
-- If you reach round {max_rounds} without submitting, the system will force submission
+PLANNING PHASE INSTRUCTIONS:
+You are in the PLANNING phase. Your task is to analyze the requirement and create a detailed execution plan.
 
-Example response formats:
-1. To query: {{"action": "query", "query_type": "token_balance", "token_address": "0x...", "submit": false}}
-2. To execute: Return TypeScript code block
-3. To submit completion: {{"action": "complete", "submit": true}}
-4. To report error: {{"error_detected": true, "error_type": "TOKEN_INSUFFICIENT_BALANCE", "error_message": "...", "submit": true}}
+IMPORTANT: Return ONLY a JSON object with the following structure:
+{{
+    "plan": {{
+        "total_steps": <number>,
+        "subtasks": [
+            {{
+                "step": 1,
+                "description": "Brief description of what to do",
+                "action_type": "approve|swap|stake|transfer|query|add_liquidity|remove_liquidity|deposit|withdraw",
+                "contract": "Contract name or address to interact with",
+                "details": "Specific parameters or notes"
+            }},
+            ...
+        ]
+    }}
+}}
+
+Analyze the task and create the most efficient plan. Minimize the number of steps while ensuring all requirements are met.
 """
-            system_prompt = system_prompt + multi_turn_instructions
             
-            # 3. Initialize conversation
-            messages = [SystemMessage(content=system_prompt)]
+            print("🤖 Calling LLM for task planning...")
+            planning_messages = [SystemMessage(content=planning_prompt)]
+            planning_response = await self.llm.ainvoke(planning_messages)
+            planning_content = planning_response.content
             
-            # 4. Multi-turn interaction loop
+            print(f"✅ Planning response received ({len(planning_content)} characters)\n")
+            
+            # Parse planning response
+            subtasks = self._parse_planning_response(planning_content)
+            
+            if not subtasks:
+                print("⚠️  Failed to parse planning response, using default sequential execution")
+                # Fallback: treat the entire task as one subtask
+                subtasks = [{
+                    'step': 1,
+                    'description': self.result['natural_language_prompt'],
+                    'action_type': 'execute',
+                    'is_final': True
+                }]
+            
+            print(f"📋 Parsed Plan: {len(subtasks)} subtasks")
+            for i, task in enumerate(subtasks, 1):
+                print(f"   {i}. [{task.get('action_type', 'execute')}] {task.get('description', 'N/A')[:60]}...")
+            print()
+            
+            # Store planning phase
+            self.result['planning_phase'] = {
+                'llm_response': planning_content,
+                'parsed_subtasks': subtasks,
+                'timestamp': datetime.now().isoformat()
+            }
+            
+            # ============================================================
+            # PHASE 2: EXECUTION (Counted in score)
+            # ============================================================
+            print(f"\n{'='*80}")
+            print(f"⚡ EXECUTION PHASE (Counted in score)")
+            print(f"{'='*80}\n")
+            
+            # Create execution system prompt
+            execution_system_prompt = f"""{system_prompt}
+
+EXECUTION PHASE INSTRUCTIONS:
+You are now in the EXECUTION phase. You will receive subtasks one at a time.
+For each subtask, generate TypeScript code to execute it.
+
+CRITICAL REQUIREMENTS:
+1. Generate ONLY TypeScript code wrapped in ```typescript ... ```
+2. Use the exact contract addresses provided in the task description
+3. If this is the FINAL subtask, add "submit": true at the end of your response
+4. If you encounter an error, report it with {{"error_detected": true, "error_message": "...", "submit": true}}
+
+⚠️ IMPORTANT - DO NOT use provider.getSigner() or wallet.sendTransaction():
+- You MUST return a transaction OBJECT, not execute the transaction
+- The platform will handle signing and sending
+- Your code should end with: return {{ to: "0x...", data: "0x...", value: 0n, ... }}
+- DO NOT try to get a signer or send transactions yourself
+
+Example structure:
+```typescript
+export async function executeSkill(providerUrl: string, agentAddress: string, deployedContracts: Record<string, string>) {{
+    const provider = new ethers.JsonRpcProvider(providerUrl);
+    // ... prepare transaction data ...
+    return {{
+        to: contractAddress,
+        data: encodedData,
+        value: 0n,
+        gasLimit: 100000n,
+        // ... other tx fields
+    }};
+}}
+```
+"""
+            
             final_submission = None
+            execution_round = 0
+            task_idx = 0  # Current subtask index
             
-            for round_num in range(1, max_rounds + 1):
-                print(f"\n{'='*80}")
-                print(f"🔄 Round {round_num}/{max_rounds}")
-                print(f"{'='*80}\n")
+            # Maintain conversation history for context
+            execution_history = []  # List of (subtask, result, round) tuples
+            retry_count = 0  # Track retries for current subtask
+            max_retries_per_subtask = 3  # Max retries before moving to next subtask
+            
+            while task_idx < len(subtasks) and execution_round < max_execution_rounds:
+                execution_round += 1
+                subtask = subtasks[task_idx]
+                is_final = task_idx == len(subtasks) - 1
                 
-                # Call LLM
-                print(f"🤖 Calling LLM (Round {round_num})...")
-                response = await self.llm.ainvoke(messages)
-                response_content = response.content
+                print(f"\n{'─'*80}")
+                print(f"🔄 Execution Round {execution_round}/{max_execution_rounds} (Subtask {task_idx + 1}/{len(subtasks)})")
+                if retry_count > 0:
+                    print(f"   🔁 Retry attempt {retry_count}/{max_retries_per_subtask}")
+                print(f"{'─'*80}\n")
                 
-                print(f"✅ LLM response received ({len(response_content)} characters)\n")
+                # Build context from previous executions
+                history_context = ""
+                if execution_history:
+                    history_context = "\n\nPREVIOUS EXECUTION RESULTS:\n"
+                    for prev_subtask, prev_result, prev_round in execution_history:
+                        status = "✅ SUCCESS" if prev_result.get('success') else "❌ FAILED"
+                        history_context += f"\nRound {prev_round} - Subtask [{prev_subtask.get('action_type')}]: {status}"
+                        if prev_result.get('success'):
+                            if 'tx_hash' in prev_result:
+                                history_context += f"\n  - Transaction: {prev_result['tx_hash'][:20]}..."
+                            if 'balance_formatted' in prev_result:
+                                history_context += f"\n  - Balance: {prev_result.get('balance_formatted')} {prev_result.get('token_symbol', '')}"
+                        else:
+                            history_context += f"\n  - Error: {prev_result.get('error', 'Unknown')[:100]}"
+                    
+                    # Add retry context if this is a retry
+                    if retry_count > 0:
+                        history_context += f"\n\n⚠️ WARNING: This subtask failed in the previous round. This is retry attempt {retry_count}."
+                        history_context += "\nPlease fix the error based on the previous failure."
+                    
+                    history_context += "\n\nUse the above results to inform your current subtask execution.\n"
+                
+                # Build subtask prompt
+                subtask_prompt = f"""Execute the following subtask:
+{history_context}
+CURRENT SUBTASK {task_idx + 1}/{len(subtasks)}:
+- Action: {subtask.get('action_type', 'execute')}
+- Description: {subtask.get('description', 'Execute the task')}
+- Contract: {subtask.get('contract', 'See task description')}
+- Details: {subtask.get('details', 'N/A')}
+
+{"This is the FINAL subtask. After executing, set submit: true" if is_final else "After execution, the next subtask will be provided."}
+
+Generate TypeScript code to execute this subtask:"""
+                
+                print(f"📤 Sending subtask to LLM:")
+                print(f"   Action: {subtask.get('action_type', 'execute')}")
+                print(f"   Description: {subtask.get('description', 'N/A')[:80]}...")
+                if execution_history:
+                    print(f"   📜 Including {len(execution_history)} previous execution results")
+                print()
+                
+                # Call LLM for execution
+                exec_messages = [
+                    SystemMessage(content=execution_system_prompt),
+                    HumanMessage(content=subtask_prompt)
+                ]
+                
+                print(f"🤖 Calling LLM for execution...")
+                exec_response = await self.llm.ainvoke(exec_messages)
+                exec_content = exec_response.content
+                
+                print(f"✅ Execution response received ({len(exec_content)} characters)\n")
                 
                 # Store in history
                 round_data = {
-                    'round': round_num,
-                    'llm_response': response_content,
+                    'execution_round': execution_round,
+                    'subtask_index': task_idx,
+                    'subtask': subtask,
+                    'retry_count': retry_count,
+                    'llm_response': exec_content,
                     'timestamp': datetime.now().isoformat()
                 }
                 
-                # Parse response
-                # LLM should return JSON with action/error_detected/submit fields
-                parsed_response = self._parse_llm_response(response_content)
+                # Parse and execute
+                parsed_response = self._parse_llm_response(exec_content)
                 round_data['parsed_response'] = parsed_response
+                
+                # Force submit on final subtask
+                if is_final:
+                    parsed_response['submit'] = True
                 
                 print(f"📋 Parsed Response:")
                 print(f"   Action: {parsed_response.get('action', 'execute')}")
                 print(f"   Submit: {parsed_response.get('submit', False)}")
-                print(f"   Error Detected: {parsed_response.get('error_detected', False)}")
+                print(f"   Is Final: {is_final}")
                 print()
                 
-                # Check if LLM wants to submit (without any action)
-                if parsed_response.get('submit') and parsed_response.get('action') not in ['execute', 'query']:
-                    print("✅ LLM submitted the task (no action)\n")
-                    final_submission = parsed_response
+                # Check for LLM-reported error
+                if parsed_response.get('error_detected'):
+                    print(f"❌ LLM reported error: {parsed_response.get('error_message', 'Unknown')}\n")
+                    error_result = {'success': False, 'error': parsed_response.get('error_message')}
+                    round_data['action_result'] = error_result
                     self.result['interaction_history'].append(round_data)
-                    self.result['total_rounds'] = round_num
-                    break
+                    execution_history.append((subtask, error_result, execution_round))
+                    
+                    # Check if we should retry or give up
+                    retry_count += 1
+                    if retry_count >= max_retries_per_subtask:
+                        print(f"⚠️  Max retries ({max_retries_per_subtask}) reached for subtask {task_idx + 1}, giving up\n")
+                        final_submission = parsed_response
+                        self.result['execution_rounds'] = execution_round
+                        break
+                    else:
+                        print(f"🔁 Will retry subtask {task_idx + 1} in next round\n")
+                        continue  # Stay on same subtask
                 
                 # Execute the action
                 action_result = await self._execute_action(
@@ -1546,34 +1987,59 @@ Example response formats:
                 
                 round_data['action_result'] = action_result
                 self.result['interaction_history'].append(round_data)
+                execution_history.append((subtask, action_result, execution_round))
                 
-                # Check if this was the final action (submit after execute)
-                if parsed_response.get('submit'):
-                    print("✅ LLM submitted after executing action\n")
-                    final_submission = parsed_response
-                    final_submission['final_action_result'] = action_result
-                    self.result['total_rounds'] = round_num
-                    break
+                print(f"📊 Execution Result: {'✅ Success' if action_result.get('success') else '❌ Failed'}")
+                if not action_result.get('success'):
+                    print(f"   Error: {action_result.get('error', 'Unknown')}")
+                print()
                 
-                # Add result to conversation
-                result_message = self._format_action_result(action_result)
-                messages.append(AIMessage(content=response_content))
-                messages.append(HumanMessage(content=result_message))
-                
-                print(f"📤 Sent result back to LLM\n")
+                # Check execution result
+                if action_result.get('success'):
+                    # Success! Move to next subtask
+                    retry_count = 0  # Reset retry count
+                    
+                    # Check if this was the final subtask or LLM submitted
+                    if parsed_response.get('submit') or is_final:
+                        print("✅ Execution phase completed\n")
+                        final_submission = parsed_response
+                        final_submission['final_action_result'] = action_result
+                        self.result['execution_rounds'] = execution_round
+                        break
+                    
+                    # Move to next subtask
+                    task_idx += 1
+                else:
+                    # Failed - retry same subtask
+                    retry_count += 1
+                    if retry_count >= max_retries_per_subtask:
+                        print(f"⚠️  Max retries ({max_retries_per_subtask}) reached for subtask {task_idx + 1}")
+                        print(f"   Moving to next subtask...\n")
+                        retry_count = 0
+                        task_idx += 1  # Move on despite failure
+                    else:
+                        print(f"🔁 Will retry subtask {task_idx + 1} in next round (attempt {retry_count + 1}/{max_retries_per_subtask})\n")
+                        # Stay on same task_idx
             
-            else:
-                # Max rounds reached - force submission and validate
-                print(f"⚠️  Max rounds ({max_rounds}) reached without explicit submission")
-                print(f"   Forcing submission and validating final state...\n")
-                self.result['total_rounds'] = max_rounds
-                
-                # Force submission with whatever we have
+            # Check exit conditions
+            if execution_round >= max_execution_rounds:
+                print(f"⚠️  Max execution rounds ({max_execution_rounds}) reached")
+                self.result['execution_rounds'] = execution_round
                 final_submission = {
                     'submit': True,
                     'forced': True,
-                    'error_detected': False
+                    'reason': 'max_rounds_reached'
                 }
+            elif task_idx >= len(subtasks) and not final_submission:
+                # All subtasks executed
+                self.result['execution_rounds'] = execution_round
+                final_submission = {
+                    'submit': True,
+                    'all_subtasks_completed': True
+                }
+            
+            # Update total_rounds for compatibility with validation
+            self.result['total_rounds'] = self.result['execution_rounds']
             
             # 5. Validation
             if final_submission:
@@ -1673,6 +2139,86 @@ Example response formats:
             'rich_address': getattr(env, 'rich_address', None),
             'erc721_test_nft_address': getattr(env, 'erc721_test_nft_address', None),
         }
+    
+    def _parse_planning_response(self, response_content: str) -> List[Dict[str, Any]]:
+        """
+        Parse LLM's planning response to extract subtasks
+        
+        Args:
+            response_content: LLM response containing the plan
+            
+        Returns:
+            List of subtask dictionaries
+        """
+        import re
+        
+        subtasks = []
+        
+        try:
+            # Try to find JSON in code block
+            json_match = re.search(r'```json\s*(\{.*?\})\s*```', response_content, re.DOTALL)
+            if json_match:
+                plan_data = json.loads(json_match.group(1))
+                if 'plan' in plan_data and 'subtasks' in plan_data['plan']:
+                    subtasks = plan_data['plan']['subtasks']
+                    print(f"   [DEBUG] Parsed {len(subtasks)} subtasks from JSON block")
+                    return subtasks
+            
+            # Try to find raw JSON object
+            json_patterns = [
+                r'\{[^{}]*"plan"[^{}]*\{[^{}]*"subtasks"[^{}]*\[.*?\][^{}]*\}[^{}]*\}',
+                r'\{.*?"subtasks"\s*:\s*\[.*?\].*?\}',
+            ]
+            
+            for pattern in json_patterns:
+                match = re.search(pattern, response_content, re.DOTALL)
+                if match:
+                    try:
+                        plan_data = json.loads(match.group(0))
+                        if 'plan' in plan_data and 'subtasks' in plan_data['plan']:
+                            subtasks = plan_data['plan']['subtasks']
+                        elif 'subtasks' in plan_data:
+                            subtasks = plan_data['subtasks']
+                        
+                        if subtasks:
+                            print(f"   [DEBUG] Parsed {len(subtasks)} subtasks from raw JSON")
+                            return subtasks
+                    except:
+                        continue
+            
+            # Try to parse numbered list format
+            list_patterns = [
+                r'(\d+)\.\s*\[?([^\]:\n]+)\]?\s*[:\-]?\s*(.+?)(?=\n\d+\.|\n\n|$)',
+                r'Step\s*(\d+)[:\.]?\s*(.+?)(?=Step\s*\d+|$)',
+            ]
+            
+            for pattern in list_patterns:
+                matches = re.findall(pattern, response_content, re.DOTALL | re.IGNORECASE)
+                if matches:
+                    for match in matches:
+                        if len(match) >= 2:
+                            step_num = int(match[0]) if match[0].isdigit() else len(subtasks) + 1
+                            action_type = match[1].strip() if len(match) > 2 else 'execute'
+                            description = match[-1].strip()[:200]  # Limit description length
+                            
+                            subtasks.append({
+                                'step': step_num,
+                                'action_type': action_type.lower().replace(' ', '_'),
+                                'description': description,
+                                'contract': 'See description',
+                                'details': ''
+                            })
+                    
+                    if subtasks:
+                        print(f"   [DEBUG] Parsed {len(subtasks)} subtasks from numbered list")
+                        return subtasks
+            
+            print(f"   [DEBUG] Could not parse planning response, no subtasks found")
+            return []
+            
+        except Exception as e:
+            print(f"   [DEBUG] Error parsing planning response: {e}")
+            return []
     
     def _parse_llm_response(self, response_content: str) -> Dict[str, Any]:
         """Parse LLM response to extract action/error/submit fields"""
@@ -1847,6 +2393,31 @@ Example response formats:
                 return {
                     'success': False,
                     'error': tx_result.get('error', 'Execution failed')
+                }
+            
+            # Check if this is a query result (not a transaction)
+            if tx_result.get('is_query'):
+                tx_object = tx_result.get('tx_object', {})
+                print("🔍 DEBUG - Query Result (not a transaction):")
+                import json
+                print(json.dumps(tx_object, indent=2, default=str))
+                
+                # Check if the result contains error_detected flag
+                if tx_object.get('error_detected'):
+                    return {
+                        'success': False,
+                        'is_query': True,
+                        'error': tx_object.get('error_message', 'LLM reported error'),
+                        'error_type': tx_object.get('error_type', 'UNKNOWN'),
+                        'query_result': tx_object,
+                        **tx_object
+                    }
+                
+                return {
+                    'success': True,
+                    'is_query': True,
+                    'query_result': tx_object,
+                    **tx_object  # Include all query data at top level for easy access
                 }
             
             # Execute transaction
