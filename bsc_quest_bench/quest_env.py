@@ -883,6 +883,61 @@ class QuestEnvironment:
         
         # CAKE allowances for SimpleStaking will be set after deployment in _deploy_simple_staking()
         
+        # Set WBNB token allowances (for wrap-swap tests like composite_wrap_swap_wbnb)
+        try:
+            wbnb_address = '0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c'  # WBNB token on BSC
+            wbnb_addr = to_checksum_address(wbnb_address)
+            test_addr = to_checksum_address(self.test_address)
+            
+            # PancakeSwap Router needs WBNB allowance
+            router_address = '0x10ED43C718714eb63d5aA57B78B54704E256024E'
+            router_addr = to_checksum_address(router_address)
+            
+            # Impersonate test account
+            self.w3.provider.make_request('anvil_impersonateAccount', [test_addr])
+            
+            # ERC20 approve function selector: 0x095ea7b3
+            approve_selector = bytes.fromhex('095ea7b3')
+            # Approve a large amount (100 WBNB to match balance)
+            approve_amount = 100 * 10**18
+            approve_data = '0x' + approve_selector.hex() + encode(['address', 'uint256'], [router_addr, approve_amount]).hex()
+            
+            # Send approve transaction
+            response = self.w3.provider.make_request(
+                'eth_sendTransaction',
+                [{
+                    'from': test_addr,
+                    'to': wbnb_addr,
+                    'data': approve_data,
+                    'gas': hex(100000),
+                    'gasPrice': hex(3000000000)
+                }]
+            )
+            
+            if 'result' in response:
+                tx_hash = response['result']
+                
+                # Wait for confirmation
+                max_attempts = 20
+                for i in range(max_attempts):
+                    try:
+                        receipt = self.w3.provider.make_request('eth_getTransactionReceipt', [tx_hash])['result']
+                        if receipt and receipt.get('blockNumber'):
+                            break
+                    except:
+                        pass
+                    time.sleep(0.5)
+            
+            # Stop impersonate
+            self.w3.provider.make_request('anvil_stopImpersonatingAccount', [test_addr])
+            
+            print(f"  • WBNB allowances set for Router ✅")
+                
+        except Exception as e:
+            print(f"  • WBNB allowances: ❌ Error - {e}")
+            import traceback
+            traceback.print_exc()
+        
         # Set LP token allowances (for remove_liquidity and staking tests)
         try:
             # USDT/BUSD LP token

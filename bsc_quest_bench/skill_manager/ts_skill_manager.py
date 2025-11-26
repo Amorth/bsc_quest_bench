@@ -137,6 +137,14 @@ class TypeScriptSkillManager:
                     output_data = json.loads(last_line)
                     
                     if output_data.get('success'):
+                        # Check if this is a query result (not a transaction)
+                        if output_data.get('is_query'):
+                            return {
+                                'success': True,
+                                'is_query': True,
+                                'tx_object': output_data.get('tx_object', {}),
+                                'execution_time': execution_time
+                            }
                         return {
                             'success': True,
                             'serialized_tx': output_data.get('serialized_tx', ''),

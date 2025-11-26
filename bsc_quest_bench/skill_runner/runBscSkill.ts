@@ -128,6 +128,49 @@ async function runSkill() {
             process.exit(0);
         }
         
+        // Check if this is a query result (not a transaction)
+        if (txObject.type === 'QUERY_RESULT') {
+            console.error('🔍 DEBUG - Query Result (not a transaction):');
+            console.error(JSON.stringify(txObject, (key, value) =>
+                typeof value === 'bigint' ? value.toString() : value
+            , 2));
+            
+            // Return success with query result directly
+            console.log(JSON.stringify({
+                success: true,
+                is_query: true,
+                execution_time: Date.now(),
+                tx_object: txObject
+            }, (key, value) =>
+                typeof value === 'bigint' ? value.toString() : value
+            ));
+            
+            process.exit(0);
+        }
+        
+        // Check if this looks like a query result with balances (no 'to' field, has 'balances' or 'success')
+        if (txObject.balances || (txObject.success === true && !('to' in txObject) && !('data' in txObject))) {
+            console.error('🔍 DEBUG - Query Result with balances detected:');
+            console.error(JSON.stringify(txObject, (key, value) =>
+                typeof value === 'bigint' ? value.toString() : value
+            , 2));
+            
+            // Return success with query result directly
+            console.log(JSON.stringify({
+                success: true,
+                is_query: true,
+                execution_time: Date.now(),
+                tx_object: {
+                    type: 'QUERY_RESULT',
+                    ...txObject
+                }
+            }, (key, value) =>
+                typeof value === 'bigint' ? value.toString() : value
+            ));
+            
+            process.exit(0);
+        }
+        
         // Validate transaction object has required fields
         const requiredFields = ['to'];
         const missingFields = requiredFields.filter(field => !(field in txObject));

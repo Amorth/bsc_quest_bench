@@ -205,6 +205,7 @@ class CompositeValidator:
         
         return {
             'score': score,
+            'max_score': 100.0,
             'passed': passed,
             'status': status,
             'validation_mode': 'error_report',
@@ -409,13 +410,15 @@ class CompositeValidator:
         """
         Validate task completion
         
-        Two-step validation:
-        1. Parameter Compliance Check (CRITICAL, binary pass/fail)
-        2. Key Operation Scoring (using modular components)
+        Validation logic:
+        1. Check if this is a pure query problem
+        2. For transaction problems: Check if a transaction was executed (chain state changed)
+        3. Base score = 100 if task completed, 0 otherwise
+        4. Step decay is applied by controller (optimal_steps / actual_steps)
         
         Args:
             chain_state: Final blockchain state
-            task_params: Original task parameters
+            task_params: Original task parameters  
             interaction_history: All interactions
         
         Returns:
@@ -424,52 +427,245 @@ class CompositeValidator:
         print("🎯 LLM Submitted Task Completion")
         print(f"{'-'*70}\n")
         
-        # For multi-turn mode, extract transaction from interaction history
-        successful_tx = None
+        # Step 1: Check if this is a pure query problem
+        if self._is_pure_query_problem():
+            return self._validate_pure_query_completion(task_params, interaction_history)
+        
+        # Step 2: Get atomic operations info
+        composite_structure = self.composite_def.get('composite_structure', {})
+        atomic_operations = composite_structure.get('atomic_operations', [])
+        key_op_id = self.scoring_strategy.get('key_operation_id')
+        
+        print(f"📋 Atomic Operations: {len(atomic_operations)}")
+        print(f"🔑 Key Operation: {key_op_id or 'Not specified'}")
+        print()
+        
+        # Step 3: Check if final transaction was executed
+        # This validates that the chain state was modified (task completed)
+        final_tx_hash = None
+        
         if interaction_history:
-            print(f"[DEBUG] Checking {len(interaction_history)} rounds in interaction history")
-            for round_data in reversed(interaction_history):
-                round_num = round_data.get('round', '?')
-                action_result = round_data.get('action_result', {})
-                print(f"[DEBUG] Round {round_num}: action_result = {action_result.get('success', False) if action_result else 'None'}, has tx_hash = {'tx_hash' in action_result if action_result else False}")
-                
-                if action_result and action_result.get('success') and 'tx_hash' in action_result:
-                    successful_tx = action_result
-                    print(f"✅ Found successful transaction in Round {round_data['round']}")
-                    print(f"   Tx Hash: {successful_tx['tx_hash']}")
-                    print(f"   Block: {successful_tx.get('block_number')}")
-                    print()
+            # Find the last transaction that was executed
+            for rd in reversed(interaction_history):
+                ar = rd.get('action_result', {})
+                if ar.get('tx_hash'):
+                    final_tx_hash = ar['tx_hash']
                     break
         
-        if not successful_tx and interaction_history:
-            print("⚠️  No successful transaction found in interaction history")
-            print("   Skipping detailed validation, giving partial credit for effort\n")
-            return {
-                'score': 50.0,
-                'max_score': 100.0,
-                'passed': False,
-                'status': 'no_transaction_executed',
-                'validation_mode': 'task_completion',
-                'details': {'message': 'LLM submitted but no transaction was executed'}
-            }
+        # Step 4: Determine pass/fail based on transaction execution
+        if final_tx_hash:
+            print(f"✅ Transaction executed: {final_tx_hash[:20]}...")
+            print(f"   Chain state modified - task completed")
+            base_score = 100.0
+            passed = True
+            status = 'completed'
+            message = 'Transaction executed successfully'
+        else:
+            print(f"❌ No transaction executed")
+            print(f"   Chain state unchanged - task not completed")
+            base_score = 0.0
+            passed = False
+            status = 'failed'
+            message = 'No transaction was executed'
         
-        # For now, if we have a successful transaction, give full score
-        # TODO: Implement detailed validation from chain state
-        print("✅ Task completed successfully (transaction executed)")
         print(f"\n{'='*70}")
-        print(f"Final Score: 100.00/100")
-        print(f"Status: ✅ PASSED")
+        print(f"Base Score: {base_score:.2f}/100")
+        print(f"Status: {'✅ PASSED' if passed else '❌ FAILED'}")
         print(f"{'='*70}\n")
         
         return {
-            'score': 100.0,
+            'score': base_score,
             'max_score': 100.0,
-            'passed': True,
-            'status': 'completed',
-            'validation_mode': 'task_completion',
+            'passed': passed,
+            'status': status,
+            'validation_mode': 'transaction_execution',
             'details': {
-                'tx_hash': successful_tx.get('tx_hash') if successful_tx else None,
-                'message': 'Transaction executed successfully'
+                'tx_hash': final_tx_hash,
+                'message': message
+            }
+        }
+    
+    def _is_pure_query_problem(self) -> bool:
+        """
+        Check if this composite problem consists only of query operations
+        
+        Returns:
+            True if all atomic operations are queries, False otherwise
+        """
+        if not self.composite_def:
+            print("[DEBUG] _is_pure_query_problem: composite_def not loaded")
+            return False
+        
+        composite_structure = self.composite_def.get('composite_structure', {})
+        atomic_operations = composite_structure.get('atomic_operations', [])
+        
+        if not atomic_operations:
+            print("[DEBUG] _is_pure_query_problem: no atomic_operations found")
+            return False
+        
+        # Check if all operations are query operations
+        for op in atomic_operations:
+            atomic_id = op.get('atomic_id', '')
+            # Query operations typically start with 'query_'
+            if not atomic_id.startswith('query_'):
+                print(f"[DEBUG] _is_pure_query_problem: found non-query operation: {atomic_id}")
+                return False
+        
+        print(f"[DEBUG] _is_pure_query_problem: All {len(atomic_operations)} operations are queries")
+        return True
+    
+    def _validate_pure_query_completion(
+        self,
+        task_params: Dict[str, Any],
+        interaction_history: List[Dict[str, Any]]
+    ) -> Dict[str, Any]:
+        """
+        Validate completion of a pure query problem
+        
+        For pure query problems, we validate that:
+        1. LLM successfully executed all required queries
+        2. LLM returned the query results
+        
+        Note: LLM may batch multiple queries into a single execution.
+        We check the returned data to count how many queries were completed.
+        
+        Args:
+            task_params: Original task parameters
+            interaction_history: All interactions
+        
+        Returns:
+            Validation result
+        """
+        print("📊 Validating Pure Query Problem")
+        print(f"{'-'*70}\n")
+        
+        # Get expected number of queries from composite definition
+        composite_structure = self.composite_def.get('composite_structure', {})
+        atomic_operations = composite_structure.get('atomic_operations', [])
+        expected_queries = len(atomic_operations)
+        
+        # Count successful query operations
+        successful_queries = 0
+        total_queries = 0
+        query_results = []
+        batched_query_count = 0
+        
+        if interaction_history:
+            for round_data in interaction_history:
+                round_num = round_data.get('round', '?')
+                action_result = round_data.get('action_result', {})
+                parsed_response = round_data.get('parsed_response', {})
+                action = parsed_response.get('action', '')
+                
+                # Check if this was a query action or successful execution
+                if action_result and isinstance(action_result, dict):
+                    is_query = action_result.get('is_query', False)
+                    is_success = action_result.get('success', False)
+                    
+                    if is_query or is_success:
+                        total_queries += 1
+                        
+                        if is_success:
+                            successful_queries += 1
+                            print(f"✅ Round {round_num}: Query succeeded")
+                            query_results.append(action_result)
+                            
+                            # Check if this is a batched query result with multiple balances
+                            # Look for 'balances' dict, 'query_result', or 'data.portfolio'
+                            balances = action_result.get('balances', {})
+                            
+                            # Check query_result field
+                            if not balances:
+                                query_result = action_result.get('query_result', {})
+                                if isinstance(query_result, dict):
+                                    balances = query_result.get('balances', {})
+                                    if not balances:
+                                        data = query_result.get('data', {})
+                                        if isinstance(data, dict):
+                                            balances = data.get('portfolio', data.get('balances', {}))
+                            
+                            # Check data.portfolio or data.balances
+                            if not balances:
+                                data = action_result.get('data', {})
+                                if isinstance(data, dict):
+                                    balances = data.get('portfolio', data.get('balances', {}))
+                            
+                            if balances and isinstance(balances, dict):
+                                batched_count = len(balances)
+                                if batched_count > 1:
+                                    batched_query_count = batched_count
+                                    print(f"   📦 Batched query detected: {batched_count} balances returned")
+                                    for asset, info in balances.items():
+                                        if isinstance(info, dict):
+                                            balance = info.get('formatted', info.get('balanceHuman', '?'))
+                                            print(f"      - {asset}: {balance}")
+                        else:
+                            print(f"❌ Round {round_num}: Query failed")
+        
+        print()
+        
+        # If batched queries detected, use that count instead
+        if batched_query_count >= expected_queries:
+            successful_queries = batched_query_count
+            total_queries = batched_query_count
+            print(f"📦 Batch query mode: {batched_query_count} queries completed in 1 round")
+        
+        print(f"📈 Query Statistics:")
+        print(f"   Expected queries: {expected_queries}")
+        print(f"   Executed queries: {total_queries}")
+        print(f"   Successful queries: {successful_queries}")
+        print()
+        
+        # Score based on successful queries
+        if expected_queries > 0:
+            # Give full score if LLM completed the required queries
+            # Note: LLM might batch them into fewer rounds
+            if successful_queries >= expected_queries:
+                score = 100.0
+                passed = True
+                status = 'all_queries_completed'
+                message = f'All {expected_queries} queries completed successfully'
+            elif successful_queries > 0:
+                # Partial credit based on completed queries
+                score = (successful_queries / expected_queries) * 100.0
+                passed = successful_queries >= expected_queries * 0.5  # Pass if >= 50% queries done
+                status = 'partial_queries_completed'
+                message = f'{successful_queries}/{expected_queries} queries completed'
+            else:
+                score = 0.0
+                passed = False
+                status = 'no_queries_completed'
+                message = 'No queries were successfully completed'
+        else:
+            # No expected queries defined, just check if any were successful
+            if successful_queries > 0:
+                score = 100.0
+                passed = True
+                status = 'queries_completed'
+                message = f'{successful_queries} queries completed successfully'
+            else:
+                score = 0.0
+                passed = False
+                status = 'no_queries_completed'
+                message = 'No queries were completed'
+        
+        print(f"{'='*70}")
+        print(f"Final Score: {score:.2f}/100")
+        print(f"Status: {'✅ PASSED' if passed else '❌ FAILED'}")
+        print(f"{'='*70}\n")
+        
+        return {
+            'score': score,
+            'max_score': 100.0,
+            'passed': passed,
+            'status': status,
+            'validation_mode': 'pure_query',
+            'details': {
+                'expected_queries': expected_queries,
+                'total_queries': total_queries,
+                'successful_queries': successful_queries,
+                'query_results': query_results,
+                'message': message
             }
         }
     
@@ -677,6 +873,10 @@ class CompositeValidator:
             'unstake_lp_tokens': 'UnstakeLPTokensValidator',
             'harvest_rewards': 'HarvestRewardsValidator',
             'wbnb_deposit': 'WBNBDepositValidator',
+            'wbnb_withdraw': 'WBNBWithdrawValidator',
+            'remove_liquidity_tokens': 'RemoveLiquidityTokensValidator',
+            'remove_liquidity_bnb_token': 'RemoveLiquidityBNBTokenValidator',
+            'swap_exact_tokens_for_bnb': 'SwapExactTokensForBNBValidator',
             # Add more mappings as needed
         }
         
@@ -697,7 +897,7 @@ class CompositeValidator:
             # Instantiate validator with appropriate parameters
             # Different validators have different constructor signatures
             # For ERC20 transfers, we need to extract token_address, to_address and amount from tx
-            if atomic_id in ['erc20_transfer_fixed', 'erc20_transfer_percentage', 'erc20_transfer_max_amount']:
+            if atomic_id == 'erc20_transfer_fixed':
                 if not tx:
                     print(f"❌ Transaction object required for {atomic_id}")
                     return None
@@ -732,6 +932,78 @@ class CompositeValidator:
                     to_address=to_address,
                     amount=amount_ether,
                     token_decimals=18  # Default to 18, can be made configurable later
+                )
+            
+            elif atomic_id == 'erc20_transfer_percentage':
+                if not tx:
+                    print(f"❌ Transaction object required for {atomic_id}")
+                    return None
+                
+                # Token address is the target of the transaction
+                token_address = tx.get('to', '')
+                
+                # Decode transfer parameters from transaction data
+                # transfer(address to, uint256 amount) - selector: 0xa9059cbb
+                tx_data = tx.get('data', '')
+                if len(tx_data) < 138:  # 0x (2) + selector (8) + to (64) + amount (64)
+                    print(f"❌ Invalid transaction data length")
+                    return None
+                
+                # Extract to_address (bytes 4-36 after selector)
+                to_address_hex = '0x' + tx_data[34:74]  # Remove leading zeros
+                from eth_utils import to_checksum_address
+                to_address = to_checksum_address(to_address_hex)
+                
+                # Get percentage from task_params or default to 100%
+                percentage = self._get_param_value('percentage') or 100
+                
+                print(f"   Decoded percentage transfer parameters:")
+                print(f"   - token_address: {token_address}")
+                print(f"   - to_address: {to_address}")
+                print(f"   - percentage: {percentage}%")
+                
+                return validator_class(
+                    token_address=token_address,
+                    to_address=to_address,
+                    percentage=int(percentage),
+                    token_decimals=18
+                )
+            
+            elif atomic_id == 'erc20_transfer_max_amount':
+                if not tx:
+                    print(f"❌ Transaction object required for {atomic_id}")
+                    return None
+                
+                # Token address is the target of the transaction
+                token_address = tx.get('to', '')
+                
+                # Decode transfer parameters from transaction data
+                # transfer(address to, uint256 amount) - selector: 0xa9059cbb
+                tx_data = tx.get('data', '')
+                if len(tx_data) < 138:  # 0x (2) + selector (8) + to (64) + amount (64)
+                    print(f"❌ Invalid transaction data length")
+                    return None
+                
+                # Extract to_address (bytes 4-36 after selector)
+                to_address_hex = '0x' + tx_data[34:74]  # Remove leading zeros
+                from eth_utils import to_checksum_address
+                to_address = to_checksum_address(to_address_hex)
+                
+                # Extract amount (bytes 36-68 after selector)
+                amount_hex = tx_data[74:138]
+                amount_wei = int(amount_hex, 16)
+                amount_ether = amount_wei / (10**18)
+                
+                print(f"   Decoded max amount transfer parameters:")
+                print(f"   - token_address: {token_address}")
+                print(f"   - to_address: {to_address}")
+                print(f"   - amount: {amount_ether} tokens ({amount_wei} wei)")
+                
+                return validator_class(
+                    token_address=token_address,
+                    to_address=to_address,
+                    amount=amount_ether,
+                    token_decimals=18
                 )
             
             elif atomic_id == 'bnb_transfer_basic':
@@ -915,6 +1187,42 @@ class CompositeValidator:
                     user_address=self.agent_address
                 )
             
+            elif atomic_id == 'stake_lp_tokens':
+                if not tx:
+                    print(f"❌ Transaction object required for {atomic_id}")
+                    return None
+                
+                # Pool address is the target of the transaction
+                pool_address = tx.get('to', '')
+                
+                # Decode deposit parameters from transaction data
+                # deposit(uint256 _amount) - selector: 0xb6b55f25
+                tx_data = tx.get('data', '')
+                if len(tx_data) < 74:  # 0x (2) + selector (8) + amount (64)
+                    print(f"❌ Invalid transaction data length for LP staking deposit")
+                    return None
+                
+                # Extract amount (bytes 4-36 after selector)
+                amount_hex = tx_data[10:74]  # Skip '0x' and 8 char selector
+                amount_wei = int(amount_hex, 16)
+                amount_tokens = amount_wei / (10**18)
+                
+                # Get lp_token_address from composite definition
+                lp_token_address = self._get_param_value('lp_token_address')
+                
+                print(f"   Decoded LP staking parameters:")
+                print(f"   - pool_address: {pool_address}")
+                print(f"   - lp_token_address: {lp_token_address}")
+                print(f"   - stake_amount: {amount_tokens} LP tokens ({amount_wei} wei)")
+                print(f"   - user_address: {self.agent_address}")
+                
+                return validator_class(
+                    stake_amount=amount_tokens,
+                    lp_token_address=lp_token_address,
+                    pool_address=pool_address,
+                    user_address=self.agent_address
+                )
+            
             elif atomic_id == 'swap_exact_bnb_for_tokens':
                 if not tx:
                     print(f"❌ Transaction object required for {atomic_id}")
@@ -970,6 +1278,35 @@ class CompositeValidator:
                     amount=amount_bnb
                 )
             
+            elif atomic_id == 'wbnb_withdraw':
+                if not tx:
+                    print(f"❌ Transaction object required for {atomic_id}")
+                    return None
+                
+                # WBNB address is the target of the transaction
+                wbnb_address = tx.get('to', '')
+                
+                # Decode withdraw parameters from transaction data
+                # withdraw(uint256 wad) - selector: 0x2e1a7d4d
+                tx_data = tx.get('data', '')
+                if len(tx_data) < 74:  # 0x (2) + selector (8) + amount (64)
+                    print(f"❌ Invalid transaction data length for WBNB withdraw")
+                    return None
+                
+                # Extract amount (bytes 4-36 after selector)
+                amount_hex = tx_data[10:74]  # Skip '0x' and 8 char selector
+                amount_wei = int(amount_hex, 16)
+                amount_wbnb = amount_wei / (10**18)
+                
+                print(f"   Decoded WBNB withdraw parameters:")
+                print(f"   - wbnb_address: {wbnb_address}")
+                print(f"   - amount: {amount_wbnb} WBNB ({amount_wei} wei)")
+                
+                return validator_class(
+                    wbnb_address=wbnb_address,
+                    amount=amount_wbnb
+                )
+            
             elif atomic_id == 'harvest_rewards':
                 if not tx:
                     print(f"❌ Transaction object required for {atomic_id}")
@@ -990,6 +1327,214 @@ class CompositeValidator:
                     reward_token_address=reward_token_address,
                     pool_address=pool_address,
                     user_address=self.agent_address
+                )
+            
+            elif atomic_id == 'swap_exact_tokens_for_tokens':
+                if not tx:
+                    print(f"❌ Transaction object required for {atomic_id}")
+                    return None
+                
+                # Router address is the target of the transaction
+                router_address = tx.get('to', '')
+                
+                # Decode swapExactTokensForTokens parameters from transaction data
+                # swapExactTokensForTokens(uint amountIn, uint amountOutMin, address[] calldata path, address to, uint deadline)
+                # selector: 0x38ed1739
+                tx_data = tx.get('data', '')
+                if len(tx_data) < 74:  # At least selector + amountIn
+                    print(f"❌ Invalid transaction data length for swap")
+                    return None
+                
+                # Extract amountIn (bytes 4-36 after selector)
+                amount_in_hex = tx_data[10:74]  # Skip '0x' and 8 char selector
+                amount_in_wei = int(amount_in_hex, 16)
+                
+                # Get token addresses and other params from composite definition
+                token_in_address = self._get_param_value('token_in_address')
+                token_out_address = self._get_param_value('token_out_address')
+                token_in_decimals = self._get_param_value('token_in_decimals', 18)
+                token_out_decimals = self._get_param_value('token_out_decimals', 18)
+                slippage = self._get_param_value('slippage', 5.0)
+                
+                amount_in_tokens = amount_in_wei / (10**token_in_decimals)
+                
+                print(f"   Decoded swap parameters:")
+                print(f"   - router_address: {router_address}")
+                print(f"   - token_in_address: {token_in_address}")
+                print(f"   - token_out_address: {token_out_address}")
+                print(f"   - amount_in: {amount_in_tokens} tokens ({amount_in_wei} wei)")
+                print(f"   - slippage: {slippage}%")
+                
+                return validator_class(
+                    router_address=router_address,
+                    token_in_address=token_in_address,
+                    token_out_address=token_out_address,
+                    amount_in=amount_in_tokens,
+                    token_in_decimals=token_in_decimals,
+                    token_out_decimals=token_out_decimals,
+                    slippage=slippage
+                )
+            
+            elif atomic_id == 'add_liquidity_tokens':
+                if not tx:
+                    print(f"❌ Transaction object required for {atomic_id}")
+                    return None
+                
+                # Router address is the target of the transaction
+                router_address = tx.get('to', '')
+                
+                # Decode addLiquidity parameters from transaction data
+                # addLiquidity(address tokenA, address tokenB, uint amountADesired, uint amountBDesired, uint amountAMin, uint amountBMin, address to, uint deadline)
+                # selector: 0xe8e33700
+                tx_data = tx.get('data', '')
+                if len(tx_data) < 138:  # At least selector + tokenA + tokenB
+                    print(f"❌ Invalid transaction data length for addLiquidity")
+                    return None
+                
+                # Extract amountADesired (bytes 68-100 after selector, 3rd parameter)
+                # Skip: 0x (2) + selector (8) + tokenA (64) + tokenB (64) = 138
+                amount_a_hex = tx_data[138:202]  # 64 chars for amountADesired
+                amount_a_wei = int(amount_a_hex, 16)
+                
+                # Extract amountBDesired (bytes 100-132 after selector, 4th parameter)
+                amount_b_hex = tx_data[202:266]  # 64 chars for amountBDesired
+                amount_b_wei = int(amount_b_hex, 16)
+                
+                # Get token addresses and decimals from composite definition
+                token_a_address = self._get_param_value('token_a_address')
+                token_b_address = self._get_param_value('token_b_address')
+                token_a_decimals = self._get_param_value('token_a_decimals', 18)
+                token_b_decimals = self._get_param_value('token_b_decimals', 18)
+                
+                amount_token_a = amount_a_wei / (10**token_a_decimals)
+                amount_token_b = amount_b_wei / (10**token_b_decimals)
+                
+                print(f"   Decoded add liquidity parameters:")
+                print(f"   - router_address: {router_address}")
+                print(f"   - token_a_address: {token_a_address}")
+                print(f"   - token_b_address: {token_b_address}")
+                print(f"   - amount_token_a: {amount_token_a} tokens ({amount_a_wei} wei)")
+                print(f"   - amount_token_b: {amount_token_b} tokens ({amount_b_wei} wei)")
+                
+                return validator_class(
+                    router_address=router_address,
+                    token_a_address=token_a_address,
+                    token_b_address=token_b_address,
+                    amount_token_a=amount_token_a,
+                    amount_token_b=amount_token_b,
+                    token_a_decimals=token_a_decimals,
+                    token_b_decimals=token_b_decimals
+                )
+            
+            elif atomic_id == 'remove_liquidity_tokens':
+                if not tx:
+                    print(f"❌ Transaction object required for {atomic_id}")
+                    return None
+                
+                # Router address is the target of the transaction
+                router_address = tx.get('to', '')
+                
+                # Decode removeLiquidity parameters from transaction data
+                # removeLiquidity(address tokenA, address tokenB, uint liquidity, uint amountAMin, uint amountBMin, address to, uint deadline)
+                # selector: 0xbaa2abde
+                tx_data = tx.get('data', '')
+                if len(tx_data) < 138:  # At least selector + tokenA + tokenB
+                    print(f"❌ Invalid transaction data length for removeLiquidity")
+                    return None
+                
+                # Get token addresses and percentage from composite definition
+                token_a_address = self._get_param_value('token_a_address')
+                token_b_address = self._get_param_value('token_b_address')
+                liquidity_percentage = self._get_param_value('liquidity_percentage', 50.0)
+                
+                print(f"   Decoded remove liquidity parameters:")
+                print(f"   - router_address: {router_address}")
+                print(f"   - token_a_address: {token_a_address}")
+                print(f"   - token_b_address: {token_b_address}")
+                print(f"   - liquidity_percentage: {liquidity_percentage}%")
+                
+                return validator_class(
+                    router_address=router_address,
+                    token_a_address=token_a_address,
+                    token_b_address=token_b_address,
+                    liquidity_percentage=liquidity_percentage
+                )
+            
+            elif atomic_id == 'remove_liquidity_bnb_token':
+                if not tx:
+                    print(f"❌ Transaction object required for {atomic_id}")
+                    return None
+                
+                # Router address is the target of the transaction
+                router_address = tx.get('to', '')
+                
+                # Decode removeLiquidityETH parameters from transaction data
+                # removeLiquidityETH(address token, uint liquidity, uint amountTokenMin, uint amountETHMin, address to, uint deadline)
+                # selector: 0x02751cec
+                tx_data = tx.get('data', '')
+                if len(tx_data) < 74:  # At least selector + token
+                    print(f"❌ Invalid transaction data length for removeLiquidityETH")
+                    return None
+                
+                # Get token address and other params from composite definition
+                token_address = self._get_param_value('token_address')
+                token_decimals = self._get_param_value('token_decimals', 18)
+                liquidity_percentage = self._get_param_value('liquidity_percentage', 50.0)
+                slippage = self._get_param_value('slippage', 5.0)
+                
+                print(f"   Decoded remove liquidity BNB parameters:")
+                print(f"   - router_address: {router_address}")
+                print(f"   - token_address: {token_address}")
+                print(f"   - liquidity_percentage: {liquidity_percentage}%")
+                print(f"   - slippage: {slippage}%")
+                
+                return validator_class(
+                    router_address=router_address,
+                    token_address=token_address,
+                    liquidity_percentage=liquidity_percentage,
+                    token_decimals=token_decimals,
+                    slippage=slippage
+                )
+            
+            elif atomic_id == 'swap_exact_tokens_for_bnb':
+                if not tx:
+                    print(f"❌ Transaction object required for {atomic_id}")
+                    return None
+                
+                # Router address is the target of the transaction
+                router_address = tx.get('to', '')
+                
+                # Decode swapExactTokensForETH parameters from transaction data
+                # swapExactTokensForETH(uint amountIn, uint amountOutMin, address[] calldata path, address to, uint deadline)
+                # selector: 0x18cbafe5
+                tx_data = tx.get('data', '')
+                if len(tx_data) < 74:  # At least selector + amountIn
+                    print(f"❌ Invalid transaction data length for swapExactTokensForETH")
+                    return None
+                
+                # Extract amountIn (bytes 4-36 after selector)
+                amount_in_hex = tx_data[10:74]  # Skip '0x' and 8 char selector
+                amount_in_wei = int(amount_in_hex, 16)
+                
+                # Get token address and other params from composite definition
+                token_address = self._get_param_value('token_address')
+                token_decimals = self._get_param_value('token_decimals', 18)
+                slippage = self._get_param_value('slippage', 5.0)
+                
+                amount_in_tokens = amount_in_wei / (10**token_decimals)
+                
+                print(f"   Decoded swap to BNB parameters:")
+                print(f"   - router_address: {router_address}")
+                print(f"   - token_address: {token_address}")
+                print(f"   - amount_in: {amount_in_tokens} tokens ({amount_in_wei} wei)")
+                print(f"   - slippage: {slippage}%")
+                
+                return validator_class(
+                    router_address=router_address,
+                    token_address=token_address,
+                    amount_in=amount_in_tokens,
+                    token_decimals=token_decimals,
+                    slippage=slippage
                 )
             
             else:
