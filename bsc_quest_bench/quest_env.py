@@ -154,6 +154,7 @@ class QuestEnvironment:
             'simple_reward_pool_address': getattr(self, 'simple_reward_pool_address', None),
             'erc1363_token_address': getattr(self, 'erc1363_token_address', None),
             'erc1155_token_address': getattr(self, 'erc1155_token_address', None),
+            'erc721_test_nft_address': getattr(self, 'erc721_test_nft_address', None),
             'flashloan_contract_address': getattr(self, 'flashloan_contract_address', None),
             'simple_counter_address': getattr(self, 'simple_counter_address', None),
             'donation_box_address': getattr(self, 'donation_box_address', None),
@@ -307,6 +308,180 @@ class QuestEnvironment:
         self._cleanup_anvil()
         print("✓ Environment cleaned up")
     
+    def get_diagnostics(self, timeout: float = 10.0) -> Dict[str, Any]:
+        """
+        Get diagnostic information about Anvil status
+        
+        Args:
+            timeout: Timeout for each diagnostic check
+            
+        Returns:
+            Dictionary with diagnostic information
+        """
+        diagnostics = {
+            'timestamp': time.strftime('%Y-%m-%dT%H:%M:%S'),
+            'anvil_process_alive': False,
+            'anvil_process_pid': None,
+            'rpc_responsive': False,
+            'rpc_response_time_ms': None,
+            'current_block_number': None,
+            'chain_id': None,
+            'test_account_balance': None,
+            'port_in_use': self._is_port_in_use(self.anvil_port),
+            'fork_url': self.fork_url,
+            'errors': []
+        }
+        
+        # Check Anvil process
+        if self.anvil_process:
+            diagnostics['anvil_process_pid'] = self.anvil_process.pid
+            poll_result = self.anvil_process.poll()
+            diagnostics['anvil_process_alive'] = poll_result is None
+            if poll_result is not None:
+                diagnostics['anvil_exit_code'] = poll_result
+                diagnostics['errors'].append(f'Anvil process exited with code {poll_result}')
+        else:
+            diagnostics['errors'].append('Anvil process not started')
+        
+        # Check RPC responsiveness
+        if self.w3:
+            try:
+                import time as time_module
+                start_time = time_module.time()
+                
+                # Try a simple RPC call with timeout
+                block_num = self.w3.eth.block_number
+                
+                end_time = time_module.time()
+                response_time_ms = (end_time - start_time) * 1000
+                
+                diagnostics['rpc_responsive'] = True
+                diagnostics['rpc_response_time_ms'] = round(response_time_ms, 2)
+                diagnostics['current_block_number'] = block_num
+                
+            except Exception as e:
+                diagnostics['errors'].append(f'RPC call failed: {str(e)[:200]}')
+            
+            # Try to get chain ID
+            try:
+                diagnostics['chain_id'] = self.w3.eth.chain_id
+            except Exception as e:
+                diagnostics['errors'].append(f'Chain ID query failed: {str(e)[:100]}')
+            
+            # Try to get test account balance
+            if self.test_address:
+                try:
+                    balance_wei = self.w3.eth.get_balance(self.test_address)
+                    diagnostics['test_account_balance'] = balance_wei / 10**18
+                except Exception as e:
+                    diagnostics['errors'].append(f'Balance query failed: {str(e)[:100]}')
+        else:
+            diagnostics['errors'].append('Web3 not connected')
+        
+        return diagnostics
+    
+    def check_health(self, timeout: float = 10.0) -> bool:
+        """
+        Quick health check for Anvil
+        
+        Args:
+            timeout: Timeout for health check
+            
+        Returns:
+            True if Anvil is healthy, False otherwise
+        """
+        diag = self.get_diagnostics(timeout)
+        return diag['anvil_process_alive'] and diag['rpc_responsive']
+    
+    def print_diagnostics(self, timeout: float = 10.0):
+        """
+        Print diagnostic information
+        
+        Args:
+            timeout: Timeout for diagnostic checks
+        """
+        diag = self.get_diagnostics(timeout)
+        
+        print("\n" + "=" * 60)
+        print("🔍 ANVIL DIAGNOSTICS")
+        print("=" * 60)
+        print(f"  Timestamp: {diag['timestamp']}")
+        print(f"  Anvil Process:")
+        print(f"    - PID: {diag['anvil_process_pid']}")
+        print(f"    - Alive: {'✅' if diag['anvil_process_alive'] else '❌'} {diag['anvil_process_alive']}")
+        if 'anvil_exit_code' in diag:
+            print(f"    - Exit Code: {diag['anvil_exit_code']}")
+        print(f"  RPC Status:")
+        print(f"    - Responsive: {'✅' if diag['rpc_responsive'] else '❌'} {diag['rpc_responsive']}")
+        print(f"    - Response Time: {diag['rpc_response_time_ms']} ms")
+        print(f"    - Block Number: {diag['current_block_number']}")
+        print(f"    - Chain ID: {diag['chain_id']}")
+        print(f"  Port {self.anvil_port} in use: {diag['port_in_use']}")
+        print(f"  Test Account Balance: {diag['test_account_balance']} BNB")
+        print(f"  Fork URL: {diag['fork_url'][:50]}...")
+        if diag['errors']:
+            print(f"  ⚠️ Errors:")
+            for err in diag['errors']:
+                print(f"    - {err}")
+        print("=" * 60 + "\n")
+        
+        return diag
+    
+    def restart(self) -> bool:
+        """
+        Restart Anvil process completely
+        
+        Returns:
+            True if restart successful, False otherwise
+        """
+        print("🔄 Restarting Anvil process...")
+        
+        try:
+            # Stop current Anvil
+            self._cleanup_anvil()
+            time.sleep(2)
+            
+            # Start new Anvil
+            self._start_anvil_fork()
+            
+            # Reconnect Web3
+            anvil_rpc = f"http://127.0.0.1:{self.anvil_port}"
+            import requests
+            session = requests.Session()
+            session.proxies = {'http': None, 'https': None}
+            session.trust_env = False
+            
+            from web3.providers.rpc import HTTPProvider
+            provider = HTTPProvider(anvil_rpc, session=session)
+            self.w3 = Web3(provider)
+            
+            # Inject POA middleware
+            try:
+                from web3.middleware import ExtraDataToPOAMiddleware
+                self.w3.middleware_onion.inject(ExtraDataToPOAMiddleware, layer=0)
+            except ImportError:
+                try:
+                    from web3.middleware.geth_poa import geth_poa_middleware
+                    self.w3.middleware_onion.inject(geth_poa_middleware, layer=0)
+                except ImportError:
+                    from web3.middleware import geth_poa_middleware
+                    self.w3.middleware_onion.inject(geth_poa_middleware, layer=0)
+            
+            # Re-setup everything
+            self._set_balance(self.test_address, 100 * 10**18)
+            self._set_token_balances()
+            self._setup_rich_account()
+            
+            # Create new snapshot
+            self.initial_snapshot_id = self.w3.provider.make_request("evm_snapshot", [])['result']
+            
+            print("✅ Anvil restarted successfully")
+            return True
+            
+        except Exception as e:
+            print(f"❌ Anvil restart failed: {e}")
+            return False
+    
     def _start_anvil_fork(self):
         """Start Anvil fork process"""
         # 1. Clean up potential zombie Anvil processes
@@ -373,7 +548,9 @@ class QuestEnvironment:
             '--port', str(self.anvil_port),
             '--host', '127.0.0.1',
             '--no-storage-caching',  # Disable storage caching, force pull from remote
-            '--compute-units-per-second', '1000',  # Increase request limit
+            '--compute-units-per-second', '300',  # Reduce request rate to avoid rate limiting
+            '--timeout', '120000',  # 120 second timeout for fork requests (ms)
+            '--retries', '5',  # Retry failed fork requests
         ]
         
         # Capture stderr for diagnostics
