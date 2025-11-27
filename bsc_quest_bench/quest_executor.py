@@ -129,9 +129,9 @@ class QuestExecutor:
             tx_hash = self.w3.eth.send_raw_transaction(raw_tx)
             print(f"✅ Transaction sent: {tx_hash.hex()}")
             
-            # 4. Wait for confirmation
+            # 4. Wait for confirmation with improved timeout handling
             print(f"⛏️  Waiting for transaction confirmation...")
-            receipt = self.w3.eth.wait_for_transaction_receipt(tx_hash, timeout=30)
+            receipt = self._wait_for_receipt_with_diagnostics(tx_hash, timeout=30)
             
             print(f"✅ Transaction confirmed")
             print(f"   Block: {receipt['blockNumber']}")
@@ -194,6 +194,75 @@ class QuestExecutor:
                 'error': str(e),
                 'state_before': state_before
             }
+    
+    def _wait_for_receipt_with_diagnostics(self, tx_hash, timeout: int = 30):
+        """
+        Wait for transaction receipt with improved diagnostics and timeout handling.
+        
+        Args:
+            tx_hash: Transaction hash
+            timeout: Timeout in seconds
+            
+        Returns:
+            Transaction receipt
+            
+        Raises:
+            Exception if transaction not confirmed within timeout or Anvil is unresponsive
+        """
+        import time
+        
+        poll_interval = 1.0  # Check every second
+        elapsed = 0
+        last_block = None
+        
+        while elapsed < timeout:
+            try:
+                # Try to get receipt
+                receipt = self.w3.eth.get_transaction_receipt(tx_hash)
+                if receipt is not None:
+                    return receipt
+            except Exception as e:
+                # Transaction not found yet, this is normal
+                error_str = str(e)
+                if 'not found' not in error_str.lower():
+                    print(f"⚠️  Receipt query error: {error_str[:100]}")
+                    # Check for timeout error - fail immediately on first timeout
+                    if 'timed out' in error_str.lower() or 'timeout' in error_str.lower():
+                        print(f"❌ RPC timeout detected - Anvil is unresponsive")
+                        print(f"   Environment reset required - raising exception to trigger retry")
+                        raise Exception(f"Anvil unresponsive: RPC timeout. Environment reset required.")
+            
+            # Check if blocks are progressing (Anvil health check)
+            try:
+                current_block = self.w3.eth.block_number
+                if last_block is not None and current_block == last_block:
+                    print(f"⚠️  Block not progressing: {current_block} (elapsed: {elapsed}s)")
+                else:
+                    if elapsed > 0 and elapsed % 5 == 0:
+                        print(f"   Waiting... Block: {current_block}, Elapsed: {elapsed}s")
+                last_block = current_block
+            except Exception as e:
+                error_str = str(e)
+                print(f"⚠️  Block number query failed: {error_str[:100]}")
+                # Check for timeout error - fail immediately on first timeout
+                if 'timed out' in error_str.lower() or 'timeout' in error_str.lower():
+                    print(f"❌ RPC timeout detected - Anvil is unresponsive")
+                    print(f"   Environment reset required - raising exception to trigger retry")
+                    raise Exception(f"Anvil unresponsive: RPC timeout. Environment reset required.")
+            
+            time.sleep(poll_interval)
+            elapsed += poll_interval
+        
+        # Timeout reached - provide diagnostic info
+        print(f"❌ Transaction confirmation timeout after {timeout}s")
+        print(f"   Transaction hash: {tx_hash.hex() if hasattr(tx_hash, 'hex') else tx_hash}")
+        print(f"   Last block: {last_block}")
+        
+        # Try one more time with the standard method for better error message
+        try:
+            return self.w3.eth.wait_for_transaction_receipt(tx_hash, timeout=5)
+        except Exception as e:
+            raise Exception(f"Transaction not confirmed within {timeout}s. Last error: {e}")
     
     def _prepare_transaction(self, tx: Dict[str, Any]) -> Dict[str, Any]:
         """

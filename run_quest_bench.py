@@ -34,17 +34,36 @@ sys.path.insert(0, str(project_root))
 from bsc_quest_bench.quest_controller import QuestController
 from bsc_quest_bench.quest_env import QuestEnvironment
 from bsc_quest_bench.validators import *
+from bsc_quest_bench.validators import CompositeValidator
 import glob
 
 # Helper functions to work with question bank
-def get_all_question_ids() -> List[str]:
-    """Get all question IDs from question bank"""
+def get_all_atomic_question_ids() -> List[str]:
+    """Get all atomic question IDs from question bank (excludes composite_problems)"""
     question_files = glob.glob(str(project_root / 'bsc_quest_bench' / 'question_bank' / '**' / '*.json'), recursive=True)
+    question_ids = []
+    for filepath in question_files:
+        # Exclude composite_problems directory
+        if 'composite_problems' in filepath:
+            continue
+        filename = Path(filepath).stem
+        question_ids.append(filename)
+    return sorted(question_ids)
+
+
+def get_all_composite_question_ids() -> List[str]:
+    """Get all composite question IDs from question bank"""
+    question_files = glob.glob(str(project_root / 'bsc_quest_bench' / 'question_bank' / 'composite_problems' / '*.json'), recursive=True)
     question_ids = []
     for filepath in question_files:
         filename = Path(filepath).stem
         question_ids.append(filename)
     return sorted(question_ids)
+
+
+def get_all_question_ids() -> List[str]:
+    """Get all question IDs from question bank (atomic + composite)"""
+    return sorted(get_all_atomic_question_ids() + get_all_composite_question_ids())
 
 def get_question_path(question_id: str) -> Optional[Path]:
     """Get path to question JSON file"""
@@ -142,21 +161,38 @@ def create_validator_factory(question_id: str):
     return factory
 
 
-class TeeOutput:
-    """Output to console and file simultaneously"""
-    def __init__(self, file, terminal):
-        self.file = file
-        self.terminal = terminal
+class TeeWriter:
+    """Writer that outputs to both console and file simultaneously"""
+    
+    def __init__(self, original_stream, log_file):
+        self.original_stream = original_stream
+        self.log_file = log_file
+        self.encoding = getattr(original_stream, 'encoding', 'utf-8') or 'utf-8'
     
     def write(self, message):
-        self.terminal.write(message)
-        self.file.write(message)
-        self.terminal.flush()
-        self.file.flush()
+        # Write to original stream (console)
+        self.original_stream.write(message)
+        # Write to log file
+        if self.log_file and not self.log_file.closed:
+            try:
+                self.log_file.write(message)
+                self.log_file.flush()  # Ensure real-time writing
+            except Exception:
+                pass  # Ignore write errors to log file
     
     def flush(self):
-        self.terminal.flush()
-        self.file.flush()
+        self.original_stream.flush()
+        if self.log_file and not self.log_file.closed:
+            try:
+                self.log_file.flush()
+            except Exception:
+                pass
+    
+    def isatty(self):
+        return self.original_stream.isatty() if hasattr(self.original_stream, 'isatty') else False
+    
+    def fileno(self):
+        return self.original_stream.fileno() if hasattr(self.original_stream, 'fileno') else -1
 
 
 class QuestBenchRunner:
@@ -190,7 +226,7 @@ class QuestBenchRunner:
         }
     
     async def run_atomic_tests(self, question_ids: List[str], max_questions: Optional[int] = None):
-        """Run atomic problem tests"""
+        """Run atomic problem tests only"""
         
         print("\n" + "="*80)
         print("🧪 BSC QUEST BENCH - Atomic Problem Evaluation")
@@ -252,8 +288,198 @@ class QuestBenchRunner:
         
         return self.results
     
-    async def _run_single_question(self, question_id: str, env: QuestEnvironment) -> Dict[str, Any]:
-        """Run single problem test"""
+    async def run_all_tests(self, atomic_ids: List[str], composite_ids: List[str], max_questions: Optional[int] = None):
+        """Run all tests: atomic first, restart Anvil, then composite with 10s intervals"""
+        import asyncio
+        
+        total_questions = len(atomic_ids) + len(composite_ids)
+        
+        print("\n" + "="*80)
+        print("🧪 BSC QUEST BENCH - Full Evaluation (Atomic + Composite)")
+        print("="*80)
+        print(f"Model: {self.model_name}")
+        print(f"Total Questions: {total_questions}")
+        print(f"  - Atomic: {len(atomic_ids)}")
+        print(f"  - Composite: {len(composite_ids)}")
+        if max_questions:
+            print(f"Max Questions: {max_questions} (randomly sampled)")
+        print(f"Fork URL: {self.fork_url}")
+        print(f"Strategy: Atomic → Restart Anvil → Composite (10s intervals)")
+        print("="*80 + "\n")
+        
+        # Sample questions if max_questions is specified
+        if max_questions:
+            # Proportionally sample from both types
+            atomic_ratio = len(atomic_ids) / total_questions
+            max_atomic = max(1, int(max_questions * atomic_ratio))
+            max_composite = max_questions - max_atomic
+            
+            if max_atomic < len(atomic_ids):
+                atomic_ids = random.sample(atomic_ids, max_atomic)
+            if max_composite < len(composite_ids):
+                composite_ids = random.sample(composite_ids, max_composite)
+            
+            print(f"📝 Randomly selected: {len(atomic_ids)} atomic + {len(composite_ids)} composite\n")
+        
+        # Initialize extended results tracking
+        self.results['atomic_success'] = 0
+        self.results['atomic_failure'] = 0
+        self.results['composite_success'] = 0
+        self.results['composite_failure'] = 0
+        
+        # ========================================
+        # Phase 1: Run Atomic Problems
+        # ========================================
+        print("\n" + "="*80)
+        print("📦 PHASE 1: ATOMIC PROBLEMS")
+        print("="*80 + "\n")
+        
+        print("🔧 Starting Anvil environment for atomic tests...")
+        env = QuestEnvironment(fork_url=self.fork_url)
+        env.start()
+        print("✅ Environment started successfully\n")
+        
+        global_idx = 0
+        
+        try:
+            for idx, question_id in enumerate(atomic_ids, 1):
+                global_idx += 1
+                print("\n" + "="*80)
+                print(f"📝 [Atomic {idx}/{len(atomic_ids)}] (Total {global_idx}/{total_questions}): {question_id}")
+                print("="*80)
+                
+                result = await self._run_single_question(question_id, env)
+                result['type'] = 'atomic'
+                self.results['questions'].append(result)
+                
+                # Update statistics
+                if result['execution_success'] and result['validation_passed']:
+                    self.results['success_count'] += 1
+                    self.results['atomic_success'] += 1
+                else:
+                    self.results['failure_count'] += 1
+                    self.results['atomic_failure'] += 1
+                
+                self.results['scores'].append(result['score'])
+                self.results['total_score'] += result['score']
+                
+                # Print summary
+                status = "✅" if result['validation_passed'] else "❌"
+                print(f"\n{status} Result: {result['score']}/{result['max_score']} "
+                      f"({result['score']/result['max_score']*100:.0f}%)")
+                
+                # Reset environment for next atomic test
+                if idx < len(atomic_ids):
+                    print(f"\n🔄 Resetting environment...")
+                    env.reset()
+            
+            # Print atomic phase summary
+            print("\n" + "="*80)
+            print("📊 PHASE 1 SUMMARY: ATOMIC PROBLEMS")
+            print("="*80)
+            print(f"Atomic Tests: {len(atomic_ids)}")
+            print(f"✅ Passed: {self.results['atomic_success']}")
+            print(f"❌ Failed: {self.results['atomic_failure']}")
+            print("="*80)
+            
+            # ========================================
+            # Phase 2: Run Composite Problems
+            # ========================================
+            phase_stopped = False
+            if len(composite_ids) > 0:
+                # Reset Anvil state for composite phase (no restart, just full reset)
+                print("\n" + "="*80)
+                print("🔄 RESETTING ANVIL STATE FOR COMPOSITE PHASE")
+                print("="*80)
+                
+                print("🩺 Checking Anvil health before composite phase...")
+                if not env.check_health(timeout=10):
+                    print(f"⚠️  Anvil is unresponsive, attempting full environment reset...")
+                    env.print_diagnostics()
+                    # Try to reset even if unresponsive
+                    if env.reset():
+                        print(f"✅ Environment reset successfully after unresponsive state")
+                    else:
+                        print(f"⚠️  Reset failed, skipping composite phase")
+                        phase_stopped = True
+                else:
+                    print(f"✅ Anvil is healthy")
+                    
+                    print("🔄 Performing full environment reset...")
+                    if not env.reset():
+                        print(f"⚠️  Reset failed, skipping composite phase")
+                        env.print_diagnostics()
+                        phase_stopped = True
+                    else:
+                        print("✅ Environment reset successfully")
+                
+                if not phase_stopped:
+                    print("⏳ Waiting 10 seconds before starting composite tests...")
+                    await asyncio.sleep(10)
+            
+            # Run composite tests only if phase was not stopped
+            if not phase_stopped and len(composite_ids) > 0:
+                print("\n" + "="*80)
+                print("🔗 PHASE 2: COMPOSITE PROBLEMS")
+                print("="*80 + "\n")
+                
+                composite_sleep = 10  # 10 seconds between composite tests
+                
+                for idx, question_id in enumerate(composite_ids, 1):
+                    global_idx += 1
+                    print("\n" + "="*80)
+                    print(f"📝 [Composite {idx}/{len(composite_ids)}] (Total {global_idx}/{total_questions}): {question_id}")
+                    print("="*80)
+                    
+                    result = await self._run_single_question(question_id, env, is_composite=True)
+                    result['type'] = 'composite'
+                    self.results['questions'].append(result)
+                    
+                    # Update statistics
+                    if result['execution_success'] and result['validation_passed']:
+                        self.results['success_count'] += 1
+                        self.results['composite_success'] += 1
+                    else:
+                        self.results['failure_count'] += 1
+                        self.results['composite_failure'] += 1
+                    
+                    self.results['scores'].append(result['score'])
+                    self.results['total_score'] += result['score']
+                    
+                    # Print summary
+                    status = "✅" if result['validation_passed'] else "❌"
+                    print(f"\n{status} Result: {result['score']}/{result['max_score']} "
+                          f"({result['score']/result['max_score']*100:.0f}%)")
+                    
+                    # Reset environment for next composite test with longer delay
+                    if idx < len(composite_ids):
+                        print(f"\n🔄 Resetting environment...")
+                        env.reset()
+                        print(f"💤 Sleeping {composite_sleep}s before next composite test...")
+                        await asyncio.sleep(composite_sleep)
+                
+                # Print composite phase summary
+                print("\n" + "="*80)
+                print("📊 PHASE 2 SUMMARY: COMPOSITE PROBLEMS")
+                print("="*80)
+                print(f"Composite Tests: {len(composite_ids)}")
+                print(f"✅ Passed: {self.results['composite_success']}")
+                print(f"❌ Failed: {self.results['composite_failure']}")
+                print("="*80)
+                
+        finally:
+            print("\n🧹 Stopping Anvil environment...")
+            env.stop()
+        
+        # Calculate final statistics
+        self.results['end_time'] = datetime.now().isoformat()
+        if self.results['scores']:
+            self.results['average_score'] = self.results['total_score'] / len(self.results['scores'])
+        
+        return self.results
+    
+    async def _run_single_question(self, question_id: str, env: QuestEnvironment, is_composite: bool = False) -> Dict[str, Any]:
+        """Run single problem test (atomic or composite)"""
         
         # Find question file
         question_path = get_question_path(question_id)
@@ -267,29 +493,39 @@ class QuestBenchRunner:
                 'error': f'Question {question_id} not found'
             }
         
-        # Check validator
-        if question_id not in VALIDATOR_REGISTRY:
-            return {
-                'question_id': question_id,
-                'execution_success': False,
-                'validation_passed': False,
-                'score': 0,
-                'max_score': 100,
-                'error': f'No validator registered for {question_id}'
-            }
-        
-        # Create validator factory
-        try:
-            validator_factory = create_validator_factory(question_id)
-        except Exception as e:
-            return {
-                'question_id': question_id,
-                'execution_success': False,
-                'validation_passed': False,
-                'score': 0,
-                'max_score': 100,
-                'error': f'Failed to create validator: {e}'
-            }
+        # Create validator factory based on problem type
+        if is_composite:
+            # Composite problem: use CompositeValidator
+            print(f"🔗 Using CompositeValidator for {question_id}")
+            
+            def validator_factory(**kwargs):
+                validator = CompositeValidator(kwargs.get('agent_address', ''))
+                validator.load_composite_definition(question_id)
+                return validator
+        else:
+            # Atomic problem: use VALIDATOR_REGISTRY
+            if question_id not in VALIDATOR_REGISTRY:
+                return {
+                    'question_id': question_id,
+                    'execution_success': False,
+                    'validation_passed': False,
+                    'score': 0,
+                    'max_score': 100,
+                    'error': f'No validator registered for {question_id}'
+                }
+            
+            # Create validator factory
+            try:
+                validator_factory = create_validator_factory(question_id)
+            except Exception as e:
+                return {
+                    'question_id': question_id,
+                    'execution_success': False,
+                    'validation_passed': False,
+                    'score': 0,
+                    'max_score': 100,
+                    'error': f'Failed to create validator: {e}'
+                }
         
         # Create controller
         controller = QuestController(
@@ -369,22 +605,55 @@ class QuestBenchRunner:
         print("="*80)
         print(f"Model: {self.model_name}")
         print(f"Total Questions: {len(self.results['questions'])}")
-        print(f"✅ Successful: {self.results['success_count']}")
+
+
+        # Show breakdown by type if available
+        if 'atomic_success' in self.results:
+            atomic_total = self.results.get('atomic_success', 0) + self.results.get('atomic_failure', 0)
+            composite_total = self.results.get('composite_success', 0) + self.results.get('composite_failure', 0)
+            print(f"  - Atomic: {atomic_total} (✅ {self.results.get('atomic_success', 0)} / ❌ {self.results.get('atomic_failure', 0)})")
+            print(f"  - Composite: {composite_total} (✅ {self.results.get('composite_success', 0)} / ❌ {self.results.get('composite_failure', 0)})")
+        
+        print(f"\n✅ Successful: {self.results['success_count']}")
         print(f"❌ Failed: {self.results['failure_count']}")
         print(f"\n💯 Total Score: {self.results['total_score']:.1f}")
         print(f"📊 Average Score: {self.results['average_score']:.1f}")
-        
+
         if self.results['scores']:
             success_rate = self.results['success_count'] / len(self.results['questions']) * 100
             print(f"📈 Success Rate: {success_rate:.1f}%")
         
-        # Detailed scores by question
+        # Detailed scores by question (grouped by type if available)
         print(f"\n📋 Detailed Scores:")
         print("-"*80)
-        for result in self.results['questions']:
-            status = "✅" if result['validation_passed'] else "❌"
-            score_pct = result['score'] / result['max_score'] * 100 if result['max_score'] > 0 else 0
-            print(f"{status} {result['question_id']:<40} {result['score']:>3}/{result['max_score']:<3} ({score_pct:.0f}%)")
+        
+        # Check if we have type information
+        has_types = any(r.get('type') for r in self.results['questions'])
+        
+        if has_types:
+            # Print atomic results first
+            atomic_results = [r for r in self.results['questions'] if r.get('type') == 'atomic']
+            if atomic_results:
+                print("--- ATOMIC PROBLEMS ---")
+                for result in atomic_results:
+                    status = "✅" if result['validation_passed'] else "❌"
+                    score_pct = result['score'] / result['max_score'] * 100 if result['max_score'] > 0 else 0
+                    print(f"{status} {result['question_id']:<40} {result['score']:>3}/{result['max_score']:<3} ({score_pct:.0f}%)")
+            
+            # Print composite results
+            composite_results = [r for r in self.results['questions'] if r.get('type') == 'composite']
+            if composite_results:
+                print("\n--- COMPOSITE PROBLEMS ---")
+                for result in composite_results:
+                    status = "✅" if result['validation_passed'] else "❌"
+                    score_pct = result['score'] / result['max_score'] * 100 if result['max_score'] > 0 else 0
+                    print(f"{status} {result['question_id']:<40} {result['score']:>3}/{result['max_score']:<3} ({score_pct:.0f}%)")
+        else:
+            # No type info, print all together
+            for result in self.results['questions']:
+                status = "✅" if result['validation_passed'] else "❌"
+                score_pct = result['score'] / result['max_score'] * 100 if result['max_score'] > 0 else 0
+                print(f"{status} {result['question_id']:<40} {result['score']:>3}/{result['max_score']:<3} ({score_pct:.0f}%)")
         
         print("="*80)
 
@@ -395,11 +664,17 @@ async def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  # Run all atomic problems
+  # Run all problems (atomic + composite, default)
+  python run_quest_bench.py --model gpt-4o
+  
+  # Run only atomic problems
   python run_quest_bench.py --model gpt-4o --type atomic
   
-  # Run 10 random atomic problems
-  python run_quest_bench.py --model claude-3-sonnet --type atomic --max-questions 10
+  # Run only composite problems
+  python run_quest_bench.py --model claude-3-sonnet --type composite
+  
+  # Run 10 random problems (proportionally sampled)
+  python run_quest_bench.py --model claude-3-sonnet --max-questions 10
   
   # Run specific questions
   python run_quest_bench.py --model gemini-pro --questions bnb_transfer_basic swap_exact_bnb_for_tokens
@@ -418,9 +693,9 @@ Examples:
     parser.add_argument(
         '--type',
         type=str,
-        default='atomic',
-        choices=['atomic', 'composite'],
-        help='Problem type: atomic or composite (default: atomic)'
+        default='all',
+        choices=['atomic', 'composite', 'all'],
+        help='Problem type: atomic, composite, or all (default: all)'
     )
     parser.add_argument(
         '--questions',
@@ -470,24 +745,40 @@ Examples:
     
     args = parser.parse_args()
     
-    # Setup log file
+    # Setup log directory
     log_dir = Path("log")
     log_dir.mkdir(parents=True, exist_ok=True)
     
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     safe_model_name = args.model.replace('/', '_')
-    log_filename = f"quest_bench_{safe_model_name}_{args.run_index}_{timestamp}.log"
-    log_filepath = log_dir / log_filename
     
-    # Setup Tee output
-    log_file = open(log_filepath, 'w', buffering=1)
+    # Create log file paths
+    full_log_filename = f"quest_bench_{safe_model_name}_{args.run_index}_{timestamp}.log"
+    failed_log_filename = f"quest_bench_{safe_model_name}_{args.run_index}_{timestamp}_failed.log"
+    full_log_path = log_dir / full_log_filename
+    failed_log_path = log_dir / failed_log_filename
+    
+    # Setup Tee output for full console log
+    full_log_file = open(full_log_path, 'w', encoding='utf-8')
     original_stdout = sys.stdout
     original_stderr = sys.stderr
     
-    sys.stdout = TeeOutput(log_file, original_stdout)
-    sys.stderr = TeeOutput(log_file, original_stderr)
+    sys.stdout = TeeWriter(original_stdout, full_log_file)
+    sys.stderr = TeeWriter(original_stderr, full_log_file)
     
     output_file = None
+    failed_count = 0
+    
+    # Initialize failed log file with header
+    with open(failed_log_path, 'w', encoding='utf-8') as f:
+        f.write("=" * 80 + "\n")
+        f.write("BSC Quest Bench - Failed Tests Log\n")
+        f.write("=" * 80 + "\n")
+        f.write(f"Start Time: {datetime.now().isoformat()}\n")
+        f.write(f"Model: {args.model}\n")
+        f.write(f"Type: {args.type}\n")
+        f.write(f"Run Index: {args.run_index}\n")
+        f.write("=" * 80 + "\n\n")
     
     try:
         print("\n" + "="*80)
@@ -497,7 +788,8 @@ Examples:
         print(f"Type: {args.type}")
         print(f"Difficulty: {'Naive (with guidance)' if args.naive_mode else 'Normal (pure NL)'}")
         print(f"Fork URL: {args.fork_url}")
-        print(f"Log File: {log_filepath}")
+        print(f"📝 Full console log: {full_log_path}")
+        print(f"📝 Failed tests log: {failed_log_path}")
         print("="*80 + "\n")
         
         # Create runner
@@ -514,21 +806,55 @@ Examples:
         if args.questions:
             question_ids = args.questions
             print(f"📝 Testing specified questions: {', '.join(question_ids)}\n")
+            # For specific questions, run as atomic tests
+            results = await runner.run_atomic_tests(question_ids, args.max_questions)
+        elif args.type == 'all':
+            # Run all tests: atomic first, then composite
+            atomic_ids = get_all_atomic_question_ids()
+            composite_ids = get_all_composite_question_ids()
+            print(f"📝 Found {len(atomic_ids)} atomic + {len(composite_ids)} composite = {len(atomic_ids) + len(composite_ids)} total\n")
+            results = await runner.run_all_tests(atomic_ids, composite_ids, args.max_questions)
         elif args.type == 'atomic':
-            question_ids = get_all_question_ids()
+            question_ids = get_all_atomic_question_ids()
             print(f"📝 Found {len(question_ids)} atomic problems\n")
+            results = await runner.run_atomic_tests(question_ids, args.max_questions)
+        elif args.type == 'composite':
+            # Run composite only
+            composite_ids = get_all_composite_question_ids()
+            print(f"📝 Found {len(composite_ids)} composite problems\n")
+            results = await runner.run_all_tests([], composite_ids, args.max_questions)
         else:
-            # TODO: Composite problems
-            print("❌ Composite problems not yet implemented")
+            print("❌ Unknown problem type")
             sys.exit(1)
         
-        # Run tests
-        if args.type == 'atomic':
-            results = await runner.run_atomic_tests(question_ids, args.max_questions)
+        # Write failed tests to separate log file
+        for question_result in results.get('questions', []):
+            if not question_result.get('validation_passed', False):
+                failed_count += 1
+                with open(failed_log_path, 'a', encoding='utf-8') as f:
+                    f.write(f"[{failed_count}] {question_result['question_id']}\n")
+                    f.write("-" * 60 + "\n")
+                    f.write(f"  Type: {question_result.get('type', 'unknown')}\n")
+                    f.write(f"  Execution Success: {question_result.get('execution_success', False)}\n")
+                    f.write(f"  Validation Passed: {question_result.get('validation_passed', False)}\n")
+                    f.write(f"  Score: {question_result.get('score', 0)}/{question_result.get('max_score', 100)}\n")
+                    if question_result.get('error'):
+                        f.write(f"  Error: {question_result['error']}\n")
+                    f.write("\n")
+        
+        # Finalize failed log
+        if failed_count > 0:
+            with open(failed_log_path, 'a', encoding='utf-8') as f:
+                f.write("=" * 80 + "\n")
+                f.write(f"End Time: {datetime.now().isoformat()}\n")
+                f.write(f"Total Failed: {failed_count}\n")
+                f.write("=" * 80 + "\n")
+            print(f"\n❌ {failed_count} test(s) failed. See: {failed_log_path}")
         else:
-            # TODO: Composite problems
-            print("❌ Composite problems not yet implemented")
-            sys.exit(1)
+            # All tests passed, remove the empty failed log file
+            if failed_log_path.exists():
+                failed_log_path.unlink()
+            print("\n✅ All tests passed! No failed tests log file created.")
         
         # Save results
         output_file = runner.save_results(args.output_dir)
@@ -537,20 +863,24 @@ Examples:
         runner.print_summary()
         
         print(f"\n📁 Results saved to: {output_file}")
-        print(f"📁 Log saved to: {log_filepath}")
+        print(f"📁 Full log saved to: {full_log_path}")
         print("="*80 + "\n")
     
     finally:
         # Restore stdout and stderr
         sys.stdout = original_stdout
         sys.stderr = original_stderr
-        log_file.close()
+        
+        if full_log_file and not full_log_file.closed:
+            full_log_file.close()
         
         # Final summary (console only)
         print(f"\n{'='*80}")
         print(f"✅ Quest Bench Completed")
         print(f"{'='*80}")
-        print(f"📁 Log saved to: {log_filepath}")
+        print(f"📁 Full log saved to: {full_log_path}")
+        if failed_count > 0:
+            print(f"📁 Failed tests log saved to: {failed_log_path}")
         if output_file:
             print(f"📁 Results saved to: {output_file}")
         print(f"{'='*80}\n")

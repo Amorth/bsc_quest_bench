@@ -67,8 +67,14 @@ class CompositeValidator:
         if not self.composite_def:
             return
         
-        # scoring_strategy is at top level, not nested in composite_structure
+        # scoring_strategy can be at top level OR nested in composite_structure
+        # Check both locations for backward compatibility
         self.scoring_strategy = self.composite_def.get('scoring_strategy', {})
+        
+        # If not found at root level, check inside composite_structure
+        if not self.scoring_strategy:
+            composite_structure = self.composite_def.get('composite_structure', {})
+            self.scoring_strategy = composite_structure.get('scoring_strategy', {})
     
     def _get_param_value(self, param_name: str, default: Any = ''):
         """

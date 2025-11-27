@@ -736,6 +736,7 @@ class QuestController:
                     'simple_reward_pool': env_info.get('simple_reward_pool_address'),
                     'erc1363_token': env_info.get('erc1363_token_address'),
                     'erc1155_token': env_info.get('erc1155_token_address'),
+                    'erc721_test_nft_address': env_info.get('erc721_test_nft_address'),
                     'flashloan_contract': env_info.get('flashloan_contract_address'),
                     'simple_counter': env_info.get('simple_counter_address'),
                     'donation_box': env_info.get('donation_box_address'),
@@ -1500,17 +1501,22 @@ class QuestController:
             print(f"    [DEBUG] Approve tx hash: {tx_hash}")
             
             # Wait for confirmation
-            max_attempts = 20
+            max_attempts = 30
             for i in range(max_attempts):
-                receipt = env.w3.eth.get_transaction_receipt(tx_hash)
-                if receipt is not None:
-                    if receipt['status'] == 1:
-                        print(f"    [DEBUG] Approve transaction confirmed")
-                        break
-                    else:
-                        print(f"    [DEBUG] Approve transaction failed (status=0)")
-                        return False
-                time.sleep(0.1)
+                try:
+                    receipt = env.w3.eth.get_transaction_receipt(tx_hash)
+                    if receipt is not None:
+                        if receipt['status'] == 1:
+                            print(f"    [DEBUG] Approve transaction confirmed")
+                            break
+                        else:
+                            print(f"    [DEBUG] Approve transaction failed (status=0)")
+                            return False
+                except Exception as receipt_error:
+                    # Transaction not found yet, continue waiting
+                    if i >= max_attempts - 1:
+                        print(f"    [DEBUG] Receipt error after {max_attempts} attempts: {receipt_error}")
+                time.sleep(0.2)
             else:
                 print(f"    [DEBUG] Approve transaction not confirmed after {max_attempts} attempts")
                 return False
@@ -1630,17 +1636,22 @@ class QuestController:
             print(f"    [DEBUG] Approve tx hash: {tx_hash}")
             
             # Wait for confirmation
-            max_attempts = 20
+            max_attempts = 30
             for i in range(max_attempts):
-                receipt = env.w3.eth.get_transaction_receipt(tx_hash)
-                if receipt is not None:
-                    if receipt['status'] == 1:
-                        print(f"    [DEBUG] Approve transaction confirmed")
-                        break
-                    else:
-                        print(f"    [DEBUG] Approve transaction failed (status=0)")
-                        return False
-                time.sleep(0.1)
+                try:
+                    receipt = env.w3.eth.get_transaction_receipt(tx_hash)
+                    if receipt is not None:
+                        if receipt['status'] == 1:
+                            print(f"    [DEBUG] Approve transaction confirmed")
+                            break
+                        else:
+                            print(f"    [DEBUG] Approve transaction failed (status=0)")
+                            return False
+                except Exception as receipt_error:
+                    # Transaction not found yet, continue waiting
+                    if i >= max_attempts - 1:
+                        print(f"    [DEBUG] Receipt error after {max_attempts} attempts: {receipt_error}")
+                time.sleep(0.2)
             else:
                 print(f"    [DEBUG] Approve transaction not confirmed after {max_attempts} attempts")
                 return False
@@ -2371,6 +2382,7 @@ Generate TypeScript code to execute this subtask:"""
                 'simple_reward_pool': env_info.get('simple_reward_pool_address'),
                 'erc1363_token': env_info.get('erc1363_token_address'),
                 'erc1155_token': env_info.get('erc1155_token_address'),
+                'erc721_test_nft_address': env_info.get('erc721_test_nft_address'),
                 'flashloan_contract': env_info.get('flashloan_contract_address'),
                 'simple_counter': env_info.get('simple_counter_address'),
                 'donation_box': env_info.get('donation_box_address'),

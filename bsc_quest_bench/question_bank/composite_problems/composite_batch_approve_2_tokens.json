@@ -104,11 +104,11 @@
       "type": "number",
       "unit": "token",
       "role": "amount_token_a",
-      "description": "Amount of token A to add",
+      "description": "Amount of token A to add (USDT)",
       "generation": {
         "method": "random",
         "min": 5.0,
-        "max": 15.0,
+        "max": 10.0,
         "decimals": 2
       }
     },
@@ -116,11 +116,11 @@
       "type": "number",
       "unit": "token",
       "role": "amount_token_b",
-      "description": "Amount of token B to add",
+      "description": "Amount of token B to add (BUSD)",
       "generation": {
         "method": "random",
         "min": 5.0,
-        "max": 15.0,
+        "max": 10.0,
         "decimals": 2
       }
     },
@@ -140,7 +140,7 @@
       "description": "Slippage tolerance",
       "generation": {
         "method": "fixed",
-        "value": 5.0
+        "value": 50.0
       }
     }
   },
