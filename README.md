@@ -1,24 +1,15 @@
-# BSC Quest Bench - Single-Round Transaction Generation Benchmark
+# BSC Quest Bench - LLM Blockchain Transaction Benchmark
 
-A comprehensive benchmark for evaluating LLM ability to generate accurate blockchain transaction code directly from natural language descriptions in a single attempt.
+A comprehensive benchmark for evaluating LLM ability to generate accurate blockchain transaction code from natural language descriptions. Supports both single-round atomic operations and multi-round composite workflows.
 
 > **🎯 Pure Natural Language Testing** — No code templates, no implementation hints, just natural language tasks. Tests true understanding, not pattern matching.
 
 ## Overview
 
-BSC Quest Bench tests LLM competency in understanding blockchain concepts and generating correct transaction code without iterative feedback. The system evaluates performance across atomic problems (single operations) and composite problems (multi-step workflows).
+BSC Quest Bench tests LLM competency in understanding blockchain concepts and generating correct transaction code. The system evaluates performance across:
 
-### Design Philosophy
-
-**Minimal Input, Maximal Reality**
-
-The benchmark uses a **three-part prompt structure** to test pure LLM understanding:
-
-1. **Role Prompt**: Universal blockchain developer role definition
-2. **Environment Description**: Complete technical environment specification
-3. **Natural Language Task**: Real user-like task descriptions
-
-**No implementation hints, no code templates, no step-by-step guides** — just like real-world scenarios where users describe what they want in natural language.
+- **Atomic Problems (62 problems)**: Single operations evaluated in one round
+- **Composite Problems (46 problems)**: Multi-step workflows with planning and execution phases
 
 ### Quick Start
 
@@ -27,35 +18,40 @@ The benchmark uses a **three-part prompt structure** to test pure LLM understand
 pip install -r requirements.txt
 cd bsc_quest_bench/skill_runner && bun install && cd ../..
 
-# 2. Run benchmark (normal mode)
-python run_quest_bench.py --model gpt-4o --type atomic --max-questions 5
+# 2. Run all tests (atomic + composite)
+python run_quest_bench.py --model gpt-4o
 
-# 3. Run benchmark (naive mode with implementation hints)
-python run_quest_bench.py --model gpt-4o --type atomic --max-questions 5 --naive-mode
+# 3. Run only atomic problems
+python run_quest_bench.py --model gpt-4o --type atomic
+
+# 4. Run only composite problems
+python run_quest_bench.py --model gpt-4o --type composite
+
+# 5. Run with naive mode (easier, with implementation hints)
+python run_quest_bench.py --model gpt-4o --naive-mode
 ```
 
 ## Key Features
 
 ### Core Features
-- **Single-Round Evaluation**: Tests LLM's first-attempt accuracy without iteration
+- **Dual Evaluation Mode**: Single-round atomic + Multi-round composite
 - **Pure Natural Language Input**: No code templates, only task descriptions
 - **Three-Part Prompt**: Role + Environment + Natural Language Task
-- **Difficulty Control**: Toggle between normal and easy mode via `--use-description`
+- **Difficulty Control**: Toggle between normal and naive mode via `--naive-mode`
 - **Real-World Simulation**: Tests understanding like real user interactions
 
 ### Problem Coverage
-- **Atomic Problems**: 45 independent blockchain operation tests covering:
-  - Native token transfers (BNB)
-  - ERC20 token operations
-  - NFT operations (ERC721, ERC1155)
-  - Contract interactions
-  - DeFi operations (swaps, liquidity, staking)
-- **Composite Problems**: Multi-step workflows combining atomic operations
+
+| Type | Count | Description |
+|------|-------|-------------|
+| **Atomic** | 62 | Single blockchain operations |
+| **Composite** | 46 | Multi-step workflows |
+| **Total** | 108 | Comprehensive coverage |
 
 ### Technical Features
-- **Detailed Validators**: Specialized validators for each problem type
-- **Deterministic Scoring**: Consistent 100-point scale per problem
-- **Environment Isolation**: Complete state reset between tests using Anvil snapshots
+- **Specialized Validators**: 62+ validators for precise scoring
+- **Efficiency-Based Scoring**: Composite problems penalize extra steps
+- **Environment Isolation**: Complete state reset using Anvil snapshots
 - **Local Anvil Fork**: BSC mainnet fork with pre-deployed test contracts
 - **Fast Execution**: ~0.002s per test reset using snapshots
 
@@ -63,224 +59,100 @@ python run_quest_bench.py --model gpt-4o --type atomic --max-questions 5 --naive
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│                 BSC Quest Bench Flow                        │
+│                    BSC Quest Bench Flow                     │
 └─────────────────────────────────────────────────────────────┘
 
-1. Load problem definition from question bank
-   ↓
-2. Generate prompt with problem description
-   ↓
-3. LLM generates TypeScript solution code
-   ↓
-4. Code executed by Bun/Node runtime
-   ↓
-5. Transaction object extracted
-   ↓
-6. Transaction sent to Anvil (local fork)
-   ↓
-7. Specialized validator checks results
-   ↓
-8. Score calculated (0-100 points)
-   ↓
-9. Environment reset via snapshot revert (~0.002s)
-   ↓
-10. Next problem (if batch mode)
+                    ┌─────────────────┐
+                    │  Load Problem   │
+                    │   Definition    │
+                    └────────┬────────┘
+                             │
+              ┌──────────────┴──────────────┐
+              │                             │
+     ┌────────▼────────┐         ┌─────────▼─────────┐
+     │  ATOMIC MODE    │         │  COMPOSITE MODE   │
+     │  (Single-Round) │         │  (Multi-Round)    │
+     └────────┬────────┘         └─────────┬─────────┘
+              │                            │
+     ┌────────▼────────┐         ┌─────────▼─────────┐
+     │ Generate Prompt │         │  PLANNING PHASE   │
+     │ (Role+Env+Task) │         │ (Parse subtasks)  │
+     └────────┬────────┘         └─────────┬─────────┘
+              │                            │
+     ┌────────▼────────┐         ┌─────────▼─────────┐
+     │  LLM Generates  │         │ EXECUTION PHASE   │
+     │  TypeScript     │         │ (Multiple rounds) │
+     └────────┬────────┘         └─────────┬─────────┘
+              │                            │
+     ┌────────▼────────┐         ┌─────────▼─────────┐
+     │ Execute on      │         │ Execute each      │
+     │ Anvil Fork      │         │ subtask on Anvil  │
+     └────────┬────────┘         └─────────┬─────────┘
+              │                            │
+              └──────────────┬─────────────┘
+                             │
+                    ┌────────▼────────┐
+                    │   Validation    │
+                    │   & Scoring     │
+                    └────────┬────────┘
+                             │
+                    ┌────────▼────────┐
+                    │  Reset via      │
+                    │  Snapshot       │
+                    └─────────────────┘
 ```
 
-## Prompt Design
+## Problem Types
 
-### Three-Part Structure
+### Atomic Problems (62 total)
 
-BSC Quest Bench uses a **minimal prompt design** to test pure LLM understanding:
+Single blockchain operations evaluated in one round.
 
-```
-┌─────────────────────────────────────────────────────────┐
-│ Part 1: Role Prompt (Universal)                        │
-├─────────────────────────────────────────────────────────┤
-│ "You are an expert blockchain developer..."            │
-└─────────────────────────────────────────────────────────┘
+#### 1. Native Token Transfers (7 problems)
+| Problem ID | Description |
+|------------|-------------|
+| `bnb_transfer_basic` | Basic BNB transfer |
+| `bnb_transfer_percentage` | Transfer percentage of balance |
+| `bnb_transfer_with_message` | Transfer with data field |
+| `bnb_transfer_to_contract` | Transfer to contract address |
+| `bnb_transfer_max_amount` | Transfer maximum available |
+| `wbnb_deposit` | Wrap BNB to WBNB |
+| `wbnb_withdraw` | Unwrap WBNB to BNB |
 
-┌─────────────────────────────────────────────────────────┐
-│ Part 2: Environment Description (Universal)             │
-├─────────────────────────────────────────────────────────┤
-│ - TypeScript + ethers.js v6                            │
-│ - Local Anvil fork of BSC mainnet                       │
-│ - Pre-deployed test contracts:                          │
-│   • deployedContracts['erc1363_token']                  │
-│   • deployedContracts['simple_staking']                 │
-│   • deployedContracts['simple_lp_staking']              │
-│   • deployedContracts['simple_reward_pool']             │
-│   • ... and more                                        │
-│ - Technical specifications (EIP-1559, gas, etc.)        │
-└─────────────────────────────────────────────────────────┘
+#### 2. ERC20 Operations (12 problems)
+| Problem ID | Description |
+|------------|-------------|
+| `erc20_transfer_fixed` | Fixed amount transfer |
+| `erc20_transfer_percentage` | Percentage transfer |
+| `erc20_transfer_max_amount` | Maximum amount transfer |
+| `erc20_approve` | Approve spender |
+| `erc20_increase_allowance` | Increase allowance |
+| `erc20_decrease_allowance` | Decrease allowance |
+| `erc20_revoke_approval` | Revoke approval |
+| `erc20_burn` | Burn tokens |
+| `erc20_permit` | ERC2612 signature approval |
+| `erc20_transferfrom_basic` | TransferFrom operation |
+| `erc20_transfer_with_callback_1363` | ERC1363 callback transfer |
+| `erc20_approve_and_call_1363` | ERC1363 approve and call |
 
-┌─────────────────────────────────────────────────────────┐
-│ Part 3: Natural Language Task (Question-Specific)       │
-├─────────────────────────────────────────────────────────┤
-│ "Stake 7.4 CAKE in the single token farming pool        │
-│  to start earning"                                       │
-└─────────────────────────────────────────────────────────┘
-```
+#### 3. NFT Operations (6 problems)
+| Problem ID | Description |
+|------------|-------------|
+| `erc721_transfer` | ERC721 transfer |
+| `erc721_safe_transfer` | ERC721 safe transfer |
+| `erc721_approve` | ERC721 approve |
+| `erc721_set_approval_for_all` | ERC721 global approval |
+| `erc1155_transfer_single` | ERC1155 single token transfer |
+| `erc1155_safe_transfer_with_data` | ERC1155 transfer with data |
 
-### What's NOT in the Prompt (by default)
+#### 4. Contract Interactions (3 problems)
+| Problem ID | Description |
+|------------|-------------|
+| `contract_call_simple` | Simple contract call |
+| `contract_call_with_value` | Call with BNB value |
+| `contract_call_with_params` | Call with parameters |
 
-❌ No code templates  
-❌ No implementation steps  
-❌ No function signatures  
-❌ No ABI definitions  
-❌ No hardcoded examples  
-
-The LLM must:
-- Understand the environment structure
-- Infer which contracts to use from semantic hints
-- Generate complete transaction code from scratch
-
-### Difficulty Control
-
-```
-┌────────────────────────────────────────────────────────────────────┐
-│                        NORMAL MODE (Default)                        │
-├────────────────────────────────────────────────────────────────────┤
-│ Input:  Role + Environment + Natural Language Task                 │
-│ Tests:  Pure understanding and inference ability                   │
-│ LLM must infer everything from semantic hints                      │
-└────────────────────────────────────────────────────────────────────┘
-
-Command: python run_quest_bench.py --model gpt-4o
-
-┌────────────────────────────────────────────────────────────────────┐
-│                      NAIVE MODE (--naive-mode)                      │
-├────────────────────────────────────────────────────────────────────┤
-│ Input:  Role + Environment + Description + Natural Language Task   │
-│ Provides: Technical context, implementation steps, function names  │
-│ Use case: Simpler LLMs, debugging, training                        │
-└────────────────────────────────────────────────────────────────────┘
-
-Command: python run_quest_bench.py --model gpt-4o --naive-mode
-```
-
-#### Mode Comparison
-
-| Aspect | Normal Mode | Naive Mode |
-|--------|-------------|------------|
-| **Prompt** | 3 parts | 4 parts (adds Description) |
-| **Guidance** | None | Step-by-step |
-| **Function names** | Not provided | Explicitly stated |
-| **Difficulty** | Higher (realistic) | Lower (assisted) |
-| **Tests** | Pure understanding | Guided implementation |
-| **Suitable for** | Advanced LLMs | All LLMs, debugging |
-
-### Example: How LLM Should Reason
-
-**Input Task**: 
-```
-"Stake 7.4 CAKE in the single token farming pool"
-```
-
-**LLM Reasoning Process**:
-
-```
-Step 1: Parse task
-  → "single token farming pool" = simple_staking contract
-
-Step 2: Check environment
-  → deployedContracts['simple_staking'] = 0x37AB605d...
-
-Step 3: Domain knowledge
-  → CAKE token on BSC = 0x0E09FaBB73Bd3Ade...
-
-Step 4: Infer workflow
-  → Need to approve staking contract first
-  → Then call deposit(amount) function
-
-Step 5: Generate code
-  → Check current allowance
-  → If insufficient: return approve transaction
-  → If sufficient: return deposit transaction
-```
-
-**What's NOT provided**:
-- ❌ Contract address (must look up in deployedContracts)
-- ❌ Function signatures (must know or infer)
-- ❌ Approve requirement (must understand ERC20)
-- ❌ Implementation steps (must reason through)
-
-**What IS provided**:
-- ✅ Environment structure (deployedContracts mapping)
-- ✅ Semantic hints ("single token farming pool")
-- ✅ Technical environment (ethers.js, EIP-1559, etc.)
-
-### Why This Matters
-
-**Traditional benchmarks often include**:
-- Code templates to fill in
-- Step-by-step instructions
-- Function signatures and examples
-- Hardcoded test values
-
-**Result**: Tests pattern matching, not understanding.
-
-**BSC Quest Bench provides**:
-- Only natural language descriptions
-- Environment specifications
-- Semantic hints (not explicit answers)
-
-**Result**: Tests true comprehension and reasoning ability.
-
-**Real-world analogy**:
-```
-❌ Traditional: "Call approve(0x123..., 1000000) then deposit(1000000)"
-✅ Quest Bench: "Stake 7.4 CAKE in the farming pool"
-```
-
-The second is how real users communicate. That's what we test.
-
-## Problem Categories
-
-### 1. Native Token Transfers (7 problems)
-
-- `bnb_transfer_basic` - Basic BNB transfer
-- `bnb_transfer_percentage` - Transfer percentage of balance
-- `bnb_transfer_with_message` - Transfer with data field
-- `bnb_transfer_to_contract` - Transfer to contract address
-- `bnb_transfer_max_amount` - Transfer maximum available
-- `wbnb_deposit` - Wrap BNB to WBNB
-- `wbnb_withdraw` - Unwrap WBNB to BNB
-
-### 2. ERC20 Operations (14 problems)
-
-- `erc20_transfer_fixed` - Fixed amount transfer
-- `erc20_transfer_percentage` - Percentage transfer
-- `erc20_transfer_max_amount` - Maximum amount transfer
-- `erc20_approve` - Approve spender
-- `erc20_increase_allowance` - Increase allowance
-- `erc20_decrease_allowance` - Decrease allowance
-- `erc20_revoke_approval` - Revoke approval
-- `erc20_burn` - Burn tokens
-- `erc20_permit` - ERC2612 signature approval
-- `erc20_transferfrom_basic` - TransferFrom operation
-- `erc20_transfer_with_callback_1363` - ERC1363 callback transfer
-- `erc20_approve_and_call_1363` - ERC1363 approve and call
-- `erc20_flashloan` - Flash loan execution
-
-### 3. NFT Operations (6 problems)
-
-- `erc721_transfer` - ERC721 transfer
-- `erc721_safe_transfer` - ERC721 safe transfer
-- `erc721_approve` - ERC721 approve
-- `erc721_set_approval_for_all` - ERC721 global approval
-- `erc1155_transfer_single` - ERC1155 single token transfer
-- `erc1155_safe_transfer_with_data` - ERC1155 transfer with data
-
-### 4. Contract Interactions (5 problems)
-
-- `contract_call_simple` - Simple contract call
-- `contract_call_with_value` - Call with BNB value
-- `contract_call_with_params` - Call with parameters
-- `contract_delegate_call` - Delegate call
-- `contract_payable_fallback` - Payable fallback call
-
-### 5. DeFi Operations (13 problems)
+#### 5. DeFi Operations (17 problems)
 
 **PancakeSwap Swaps (5 problems)**
 - `swap_exact_bnb_for_tokens` - Swap BNB → Token
@@ -295,12 +167,158 @@ The second is how real users communicate. That's what we test.
 - `remove_liquidity_bnb_token` - Remove BNB+Token liquidity
 - `remove_liquidity_tokens` - Remove Token+Token liquidity
 
-**Staking/Farming (4 problems)**
+**Staking/Farming (5 problems)**
 - `stake_single_token` - Stake single token
 - `stake_lp_tokens` - Stake LP tokens
 - `unstake_lp_tokens` - Unstake LP tokens
 - `harvest_rewards` - Harvest farming rewards
 - `emergency_withdraw` - Emergency withdrawal
+
+**DeFi Queries (3 problems)**
+- `query_pair_reserves` - Query pool reserves
+- `query_swap_output_amount` - Calculate swap output
+- `query_swap_input_amount` - Calculate swap input
+
+#### 6. Query Operations (14 problems)
+
+**Balance & Allowance Queries**
+- `query_bnb_balance` - Query BNB balance
+- `query_erc20_balance` - Query ERC20 balance
+- `query_erc20_allowance` - Query ERC20 allowance
+
+**NFT Queries**
+- `query_nft_owner` - Query NFT owner
+- `query_nft_balance` - Query NFT balance
+- `query_nft_token_uri` - Query NFT metadata URI
+- `query_nft_approval_status` - Query NFT approval
+
+**Staking Queries**
+- `query_staked_amount` - Query staked amount
+- `query_pending_rewards` - Query pending rewards
+
+**Token Info Queries**
+- `query_token_metadata` - Query token name/symbol/decimals
+- `query_token_total_supply` - Query total supply
+
+**Blockchain Queries**
+- `query_current_block_number` - Get current block
+- `query_gas_price` - Get gas price
+- `query_transaction_count_nonce` - Get nonce
+
+#### 7. Advanced Features (3 problems)
+| Problem ID | Description |
+|------------|-------------|
+| `contract_delegate_call` | Delegate call pattern |
+| `contract_payable_fallback` | Payable fallback/receive |
+| `erc20_flashloan` | Flash loan execution |
+
+---
+
+### Composite Problems (46 total)
+
+Multi-step workflows with planning and execution phases.
+
+#### Evaluation Flow
+```
+1. PLANNING PHASE (Not scored)
+   └── LLM creates execution plan with subtasks
+
+2. EXECUTION PHASE (Scored)
+   └── LLM executes each subtask
+   └── Each round counts toward step count
+
+3. VALIDATION
+   └── Check final state against requirements
+   └── Apply efficiency penalty if steps > optimal
+```
+
+#### Scoring Formula
+```
+Final Score = Base Score × min(1.0, optimal_steps / actual_steps)
+```
+
+| Steps Used | Penalty |
+|------------|---------|
+| ≤ optimal | 100% (no penalty) |
+| 2× optimal | 50% |
+| 3× optimal | 33% |
+
+#### Composite Problem Categories
+
+**Approval + Operation Workflows (8 problems)**
+| Problem ID | Optimal Steps | Description |
+|------------|---------------|-------------|
+| `composite_approve_add_liquidity` | 3 | Approve tokens then add liquidity |
+| `composite_approve_remove_liquidity` | 3 | Approve LP then remove liquidity |
+| `composite_approve_stake_tokens` | 3 | Approve then stake tokens |
+| `composite_approve_swap_tokens` | 3 | Approve then swap tokens |
+| `composite_approve_swap_to_bnb` | 3 | Approve then swap to BNB |
+| `composite_approve_swap_query_result` | 3 | Approve, swap, query result |
+| `composite_approve_transferfrom` | 3 | Approve then transferFrom |
+| `composite_batch_approve_2_tokens` | 3 | Approve 2 tokens for router |
+
+**Batch Transfer Operations (6 problems)**
+| Problem ID | Optimal Steps | Description |
+|------------|---------------|-------------|
+| `composite_batch_transfer_2_bnb` | 3 | Transfer BNB to 2 recipients |
+| `composite_batch_transfer_3_bnb` | 3 | Transfer BNB to 3 recipients |
+| `composite_batch_transfer_2_tokens` | 3 | Transfer tokens to 2 recipients |
+| `composite_batch_transfer_3_tokens` | 3 | Transfer tokens to 3 recipients |
+| `composite_batch_mixed_transfers` | 3 | Mixed BNB and token transfers |
+| `composite_split_and_transfer` | 3 | Split amount and transfer |
+
+**Query + Verify Workflows (10 problems)**
+| Problem ID | Optimal Steps | Description |
+|------------|---------------|-------------|
+| `composite_batch_query_2_balances` | 3 | Query 2 token balances |
+| `composite_batch_query_portfolio` | 3 | Query portfolio balances |
+| `composite_query_allowance_approve_verify` | 2 | Query, approve, verify |
+| `composite_query_balance_wrap_verify` | 3 | Query, wrap BNB, verify |
+| `composite_query_bnb_transfer_verify` | 2 | Query, transfer, verify |
+| `composite_query_erc20_transfer_verify` | 3 | Query, transfer ERC20, verify |
+| `composite_query_nft_transfer_verify` | 2 | Query, transfer NFT, verify |
+| `composite_query_reserves_before_after_swap` | 3 | Query reserves, swap, query again |
+| `composite_query_staked_stake_verify` | 2 | Query staked, stake, verify |
+| `composite_query_swap_verify_output` | 3 | Query, swap, verify output |
+
+**DeFi Workflows (12 problems)**
+| Problem ID | Optimal Steps | Description |
+|------------|---------------|-------------|
+| `composite_add_liquidity_stake_lp` | 3 | Add liquidity then stake LP |
+| `composite_remove_liquidity_unwrap` | 3 | Remove liquidity, unwrap WBNB |
+| `composite_full_liquidity_cycle` | 5 | Add, stake, harvest, unstake, remove |
+| `composite_liquidity_provision_with_stake` | 6 | Full LP provision workflow |
+| `composite_triple_pool_liquidity` | 6 | Interact with 3 pools |
+| `composite_multi_token_swap` | 3 | Multi-token swap chain |
+| `composite_multi_approve_multi_swap` | 5 | Multiple approvals and swaps |
+| `composite_swap_approve_stake` | 3 | Swap, approve, stake |
+| `composite_swap_unwrap_bnb` | 3 | Swap to WBNB, unwrap |
+| `composite_wrap_swap_wbnb` | 3 | Wrap BNB, swap WBNB |
+| `composite_wrap_add_liquidity` | 3 | Wrap BNB, add liquidity |
+| `composite_wrap_unwrap_cycle` | 3 | Wrap and unwrap cycle |
+
+**Staking Workflows (6 problems)**
+| Problem ID | Optimal Steps | Description |
+|------------|---------------|-------------|
+| `composite_complete_swap_stake_workflow` | 6 | Swap, add LP, stake |
+| `composite_emergency_exit_workflow` | 5 | Emergency unstake and exit |
+| `composite_harvest_reinvest_workflow` | 5 | Harvest rewards and reinvest |
+| `composite_unstake_harvest_query` | 3 | Unstake, harvest, query |
+| `composite_query_rewards_harvest_verify` | 3 | Query rewards, harvest, verify |
+| `composite_portfolio_rebalance` | 5 | Rebalance portfolio |
+
+**NFT Operations (2 problems)**
+| Problem ID | Optimal Steps | Description |
+|------------|---------------|-------------|
+| `composite_nft_transfer_with_payment` | 3 | Transfer NFT with BNB payment |
+| `composite_nft_bundle_sale` | 5 | Bundle multiple NFT operations |
+
+**Optimized Workflows (2 problems)**
+| Problem ID | Optimal Steps | Description |
+|------------|---------------|-------------|
+| `composite_optimized_swap_with_query` | 5 | Query-optimized swap |
+
+---
 
 ## Installation
 
@@ -332,41 +350,31 @@ pip install -r requirements.txt
 curl -fsSL https://bun.sh/install | bash
 
 # Install TypeScript dependencies
-cd skill_runner
+cd bsc_quest_bench/skill_runner
 bun install
-cd ..
+cd ../..
 ```
 
 ## Usage
 
-### Quick Start
+### Run All Tests
 
 ```bash
-# Default mode (tests pure understanding)
-python run_quest_bench.py --model gpt-4o --type atomic
+# Run all problems (atomic + composite)
+python run_quest_bench.py --model gpt-4o
 
-# Naive mode (with implementation guidance)
-python run_quest_bench.py --model gpt-4o --type atomic --naive-mode
+# Run with naive mode (easier)
+python run_quest_bench.py --model gpt-4o --naive-mode
 ```
 
-### Run All Atomic Problems
+### Run by Problem Type
 
 ```bash
-# Normal difficulty - Pure natural language understanding
+# Atomic problems only
 python run_quest_bench.py --model gpt-4o --type atomic
 
-# Naive difficulty - Includes implementation hints
-python run_quest_bench.py --model gpt-4o --type atomic --naive-mode
-```
-
-### Run Random Sample
-
-```bash
-# Test 10 random problems (normal mode)
-python run_quest_bench.py --model claude-3-sonnet --type atomic --max-questions 10
-
-# Test 10 random problems (naive mode)
-python run_quest_bench.py --model claude-3-sonnet --type atomic --max-questions 10 --naive-mode
+# Composite problems only
+python run_quest_bench.py --model gpt-4o --type composite
 ```
 
 ### Run Specific Problems
@@ -374,19 +382,36 @@ python run_quest_bench.py --model claude-3-sonnet --type atomic --max-questions 
 ```bash
 # Test specific problems
 python run_quest_bench.py \
-  --model gemini-pro \
-  --questions bnb_transfer_basic swap_exact_bnb_for_tokens erc20_transfer_fixed
+  --model gpt-4o \
+  --questions bnb_transfer_basic composite_approve_swap_tokens
+```
 
-# With naive mode
-python run_quest_bench.py \
-  --model gemini-pro \
-  --questions stake_single_token unstake_lp_tokens \
-  --naive-mode
+### Run Random Sample
+
+```bash
+# Test 10 random problems (proportionally sampled)
+python run_quest_bench.py --model gpt-4o --max-questions 10
+```
+
+### Resume or Rerun Failed Tests
+
+```bash
+# Resume from question index 25 (0-based)
+python run_quest_bench.py --model gpt-4o --start-index 25
+
+# Rerun specific failed tests by index
+python run_quest_bench.py --model gpt-4o --type composite --rerun-indices "5,6,13,15,20"
 ```
 
 ### Use Custom API Endpoint
 
 ```bash
+# OpenRouter
+python run_quest_bench.py \
+  --model anthropic/claude-sonnet-4 \
+  --base-url https://openrouter.ai/api/v1 \
+  --api-key your-key
+
 # Azure OpenAI
 python run_quest_bench.py \
   --model gpt-4 \
@@ -398,58 +423,88 @@ python run_quest_bench.py \
   --model qwen-turbo \
   --base-url https://dashscope.aliyuncs.com/compatible-mode/v1 \
   --api-key your-key
-
-# OpenRouter
-python run_quest_bench.py \
-  --model anthropic/claude-sonnet-4 \
-  --base-url https://openrouter.ai/api/v1 \
-  --api-key your-key
 ```
 
 ### Command Line Options
 
 | Option | Type | Required | Description |
 |--------|------|----------|-------------|
-| `--model` | string | ✅ | LLM model name (e.g., gpt-4o, claude-3-sonnet, gemini-pro) |
-| `--type` | string | ❌ | Problem type: `atomic` or `composite` (default: atomic) |
+| `--model` | string | ✅ | LLM model name (e.g., gpt-4o, claude-3-sonnet) |
+| `--type` | string | ❌ | Problem type: `atomic`, `composite`, or `all` (default: all) |
 | `--questions` | list | ❌ | Specific question IDs to test (space-separated) |
 | `--max-questions` | int | ❌ | Maximum number of random questions to test |
+| `--start-index` | int | ❌ | Start from question index (0-based, for resuming) |
+| `--rerun-indices` | string | ❌ | Comma-separated indices to rerun (e.g., "5,6,13,15") |
 | `--run-index` | int | ❌ | Run index for multiple experiments (default: 0) |
 | `--output-dir` | string | ❌ | Results output directory (default: `results/`) |
-| `--api-key` | string | ❌ | API key for LLM provider (or set via environment variable) |
-| `--base-url` | string | ❌ | Custom API base URL (for Azure, Alibaba Cloud, etc.) |
-| `--fork-url` | string | ❌ | BSC RPC URL to fork (default: BSC Testnet) |
-| `--naive-mode` | flag | ❌ | **Naive Mode**: Include detailed implementation guidance in prompts |
-
-### Difficulty Modes
-
-| Mode | Flag | Prompt Content | Use Case |
-|------|------|----------------|----------|
-| **Normal** | (default) | Role + Environment + Natural Language | Standard evaluation, tests pure understanding |
-| **Naive** | `--naive-mode` | Role + Environment + **Description** + Natural Language | Simpler LLMs, debugging, training |
+| `--api-key` | string | ❌ | API key for LLM provider |
+| `--base-url` | string | ❌ | Custom API base URL |
+| `--fork-url` | string | ❌ | BSC RPC URL to fork (default: BSC Mainnet) |
+| `--naive-mode` | flag | ❌ | Include detailed implementation guidance |
 
 ## Scoring System
 
-Each atomic problem is scored on a 100-point scale across multiple dimensions:
+### Atomic Problems
 
-### Example: BNB Transfer
+Each atomic problem is scored on a 100-point scale:
 
 ```
 Check 1: Transaction Success    (30 points)
 Check 2: Recipient Address      (20 points)
 Check 3: Transfer Amount        (20 points)
-Check 4: BNB Balance Change     (20 points)
+Check 4: Balance Change         (20 points)
 Check 5: Gas Usage              (10 points)
 ─────────────────────────────────────────────
 Total:                          100 points
 ```
 
-### Scoring Philosophy
+### Composite Problems
 
-- **Strict Validation**: No partial credit for critical failures
-- **Key Requirements**: Must pass transaction success + core checks
-- **Detailed Feedback**: Each check provides specific error messages
-- **Deterministic**: Same code always yields same score
+Composite problems use efficiency-based scoring:
+
+```
+Final Score = Base Score × Efficiency Factor
+
+Efficiency Factor = min(1.0, optimal_steps / actual_steps)
+```
+
+**Example:**
+- Optimal steps: 3
+- Actual steps: 4
+- Efficiency: 3/4 = 75%
+- If base score is 100, final score = 75
+
+**Passing Threshold:** Score ≥ 60
+
+## Results
+
+### Output Files
+
+```
+results/quest_bench_{model}_{index}_{timestamp}.json    # Results JSON
+log/{model}_{type}_{timestamp}_full.log                  # Full console log
+log/{model}_{type}_{timestamp}_fail.log                  # Failed tests only
+```
+
+### Example Result Summary
+
+```
+================================================================================
+📊 FINAL RESULTS
+================================================================================
+Model: gpt-4o
+Total Questions: 108
+  - Atomic: 62 (✅ 58 / ❌ 4)
+  - Composite: 46 (✅ 40 / ❌ 6)
+
+✅ Successful: 98
+❌ Failed: 10
+
+💯 Total Score: 9250.5
+📊 Average Score: 85.7
+📈 Success Rate: 90.7%
+================================================================================
+```
 
 ## Project Structure
 
@@ -459,36 +514,24 @@ bsc_quest_bench/
 ├── quest_env.py                  # Anvil environment manager
 ├── quest_executor.py             # Transaction executor
 ├── parameter_generator.py        # Random parameter generation
-├── validators/                   # Specialized validators (46 files)
+├── validators/                   # Specialized validators (62+ files)
 │   ├── __init__.py
+│   ├── composite_validator.py    # Multi-turn composite validator
 │   ├── bnb_transfer_validator.py
-│   ├── erc20_transfer_validator.py
-│   ├── swap_exact_bnb_for_tokens_validator.py
 │   └── ...
 ├── question_bank/                # Problem definitions
-│   ├── basic_transactions/
-│   │   ├── native_transfer/      # 7 BNB transfer problems
-│   │   ├── erc20_operations/     # 14 ERC20 problems
-│   │   ├── nft_operations/       # 6 NFT problems
-│   │   └── contract_call/        # 5 contract problems
-│   ├── defi_operations/
-│   │   ├── pancakeswap_swap/     # 5 swap problems
-│   │   ├── pancakeswap_liquidity/ # 4 liquidity problems
-│   │   └── staking_farming/      # 4 staking problems
-│   └── advanced_features/
-│       ├── delegate_call/        # 1 problem
-│       ├── fallback/             # 1 problem
-│       └── flashloan/            # 1 problem
-├── skill_manager/                # TypeScript executor
-│   └── ts_skill_manager.py
+│   ├── basic_transactions/       # 40 atomic problems
+│   ├── defi_operations/          # 19 atomic problems
+│   ├── advanced_features/        # 3 atomic problems
+│   └── composite_problems/       # 46 composite problems
+├── skill_runner/                 # TypeScript executor
+│   ├── runBscSkill.ts
+│   └── package.json
 ├── contracts/                    # Test contracts
-│   ├── SimpleStaking.sol         # Single token staking
-│   ├── SimpleLPStaking.sol       # LP token staking
-│   ├── SimpleRewardPool.sol      # Reward distribution
-│   ├── ERC1363Token.sol          # ERC1363 token
-│   └── ERC721NFT.sol             # ERC721 NFT
+│   ├── SimpleStaking.sol
+│   ├── SimpleLPStaking.sol
+│   └── ...
 ├── run_quest_bench.py            # Main benchmark runner
-├── example_usage.py              # Usage examples
 ├── system_config.json            # System configuration
 ├── requirements.txt              # Python dependencies
 └── README.md                     # This file
@@ -507,270 +550,89 @@ The benchmark runs on a **local Anvil fork** of BSC mainnet:
 
 ### Available Test Contracts
 
-The `deployedContracts` parameter provides access to:
-
 | Key | Contract | Purpose |
 |-----|----------|---------|
-| `erc1363_token` | ERC1363Token | Test token with callback support (T1363, 18 decimals) |
-| `erc1155_token` | ERC1155Multi | Multi-token NFT contract |
-| `simple_staking` | SimpleStaking | Single-token staking pool (for CAKE) |
-| `simple_lp_staking` | SimpleLPStaking | LP token staking pool |
-| `simple_reward_pool` | SimpleRewardPool | Reward distribution with staking |
-| `simple_counter` | SimpleCounter | Counter contract for testing |
-| `donation_box` | DonationBox | Donation receiver contract |
-| `message_board` | MessageBoard | Message storage contract |
-| `fallback_receiver` | FallbackReceiver | Fallback function test contract |
-| `rich_address` | Pre-funded EOA | Address with pre-approved tokens |
+| `erc1363_token` | ERC1363Token | Token with callback support |
+| `erc1155_token` | ERC1155Multi | Multi-token NFT |
+| `simple_staking` | SimpleStaking | Single-token staking |
+| `simple_lp_staking` | SimpleLPStaking | LP token staking |
+| `simple_reward_pool` | SimpleRewardPool | Reward distribution |
+| `simple_counter` | SimpleCounter | Counter for testing |
+| `donation_box` | DonationBox | Donation receiver |
+| `message_board` | MessageBoard | Message storage |
+| `fallback_receiver` | FallbackReceiver | Fallback function test |
 
-### Contract Usage in Natural Language
+## Prompt Design
 
-LLMs must infer correct contract usage from semantic hints:
-
-| Hint in Task | Inferred Contract |
-|--------------|-------------------|
-| "single token staking pool" | `deployedContracts['simple_staking']` |
-| "SimpleLPStaking", "LP staking" | `deployedContracts['simple_lp_staking']` |
-| "SimpleRewardPool", "reward pool" | `deployedContracts['simple_reward_pool']` |
-| "ERC1363 token", "T1363" | `deployedContracts['erc1363_token']` |
-| "ERC1155 token" | `deployedContracts['erc1155_token']` |
-
-## Results
-
-Results are saved in JSON format:
+### Three-Part Structure
 
 ```
-results/quest_bench_{model}_{index}_{timestamp}.json
+┌─────────────────────────────────────────────────────────┐
+│ Part 1: Role Prompt (Universal)                        │
+├─────────────────────────────────────────────────────────┤
+│ "You are an expert blockchain developer..."            │
+└─────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────┐
+│ Part 2: Environment Description (Universal)             │
+├─────────────────────────────────────────────────────────┤
+│ - TypeScript + ethers.js v6                            │
+│ - Local Anvil fork of BSC mainnet                       │
+│ - Pre-deployed test contracts                           │
+│ - Technical specifications                              │
+└─────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────┐
+│ Part 3: Natural Language Task (Problem-Specific)        │
+├─────────────────────────────────────────────────────────┤
+│ "Stake 7.4 CAKE in the single token farming pool"      │
+└─────────────────────────────────────────────────────────┘
 ```
 
-**Example Result:**
+### Difficulty Modes
 
-```json
-{
-  "model_name": "gpt-4o",
-  "total_score": 4250.0,
-  "average_score": 94.4,
-  "success_count": 42,
-  "failure_count": 3,
-  "questions": [
-    {
-      "question_id": "bnb_transfer_basic",
-      "score": 100,
-      "max_score": 100,
-      "validation_passed": true,
-      "execution_success": true
-    },
-    ...
-  ]
-}
-```
-
-Logs are saved to:
-
-```
-log/quest_bench_{model}_{index}_{timestamp}.log
-```
-
-## Performance
-
-The system uses Anvil snapshot/revert for fast environment isolation:
-
-- **Initial Setup**: ~27 seconds (one-time)
-- **Per-Test Reset**: ~0.002 seconds (snapshot revert)
-- **45 Tests Total**: ~2-3 minutes
-
-## Validator Development
-
-Each validator implements a standard interface:
-
-```python
-class BaseValidator:
-    def validate(
-        self,
-        tx: Dict[str, Any],           # Transaction object
-        receipt: Dict[str, Any],      # Transaction receipt
-        state_before: Dict[str, Any], # Pre-transaction state
-        state_after: Dict[str, Any]   # Post-transaction state
-    ) -> Dict[str, Any]:
-        """
-        Returns:
-        {
-            'passed': bool,           # Overall pass/fail
-            'score': int,             # Points earned
-            'max_score': int,         # Maximum possible
-            'checks': List[Dict],     # Individual check results
-            'feedback': str           # Detailed feedback
-        }
-        """
-```
-
-## Composite Problems (Upcoming)
-
-Composite problems will test multi-step workflows:
-
-- **Swap + Add Liquidity**: Swap tokens then add to pool
-- **Approve + TransferFrom**: Two-step token transfer
-- **Stake + Harvest**: Stake tokens and harvest rewards
-- **Multi-Protocol Interactions**: Cross-protocol operations
+| Mode | Flag | Description |
+|------|------|-------------|
+| **Normal** | (default) | Pure natural language, tests true understanding |
+| **Naive** | `--naive-mode` | Includes implementation guidance |
 
 ## Troubleshooting
 
-### Environment Reset Issues
+### RPC Rate Limit Errors
 
-If tests pass individually but fail in batch mode:
-
-```python
-# Environment automatically resets between tests
-# If issues persist, check quest_env.py reset() method
-```
-
-### Validator Scoring Issues
+If you see `HTTP error 429` or "rate limit reached":
 
 ```bash
-# Check validator logic
-python -c "
-from bsc_quest_bench.validators import BNBTransferValidator
-# Test validator independently
-"
+# Use BSC public RPC instead
+python run_quest_bench.py --model gpt-4o --fork-url https://bsc-dataseed.binance.org
 ```
 
 ### Anvil Connection Issues
 
 ```bash
 # Bypass proxy for localhost
-NO_PROXY="localhost,127.0.0.1" python run_quest_bench.py
+NO_PROXY="localhost,127.0.0.1" python run_quest_bench.py --model gpt-4o
 ```
 
-## Design Principles
+### Resume After Failure
 
-### 1. Minimal Information, Maximum Reality
+```bash
+# Resume from where you left off
+python run_quest_bench.py --model gpt-4o --start-index 25
 
-**Philosophy**: Test LLMs with only what a real user would provide.
+# Or rerun specific failed tests
+python run_quest_bench.py --model gpt-4o --type composite --rerun-indices "5,6,13"
+```
 
-- ✅ Natural language task descriptions
-- ✅ Environment specification
-- ❌ No code templates
-- ❌ No implementation guides
-- ❌ No step-by-step instructions
+## Performance
 
-### 2. Pure Understanding Test
-
-**Goal**: Evaluate true comprehension, not pattern matching.
-
-The LLM must:
-- Understand blockchain concepts from first principles
-- Infer contract usage from semantic hints
-- Generate complete working code without examples
-- Handle edge cases without explicit warnings
-
-### 3. Inference Over Instruction
-
-**Example**: "Stake 7.4 CAKE in the single token farming pool"
-
-**LLM Must Infer**:
-- "single token farming pool" → `deployedContracts['simple_staking']`
-- Need to approve tokens first
-- CAKE address on BSC mainnet
-- Correct function signature and parameters
-- Proper gas configuration
-
-**We Don't Tell**:
-- Which contract to use
-- Function names
-- Implementation steps
-- ABI definitions
-
-### 4. Real-World Simulation
-
-Task descriptions mimic real user requests:
-- ✅ "Transfer 50 USDT to Alice"
-- ✅ "Swap 1 BNB for CAKE"
-- ✅ "Unstake my LP tokens from the reward pool"
-- ❌ "Call transferFrom(address,address,uint256)"
-- ❌ "Encode function selector 0xa9059cbb"
-
-### 5. Difficulty Control for Flexibility
-
-- **Default Mode**: Pure natural language (harder)
-- **Easy Mode**: Includes implementation guidance (easier)
-- **Purpose**: Support different LLM capabilities and use cases
-
-### 6. Deterministic & Reproducible
-
-- Fixed scoring criteria
-- Consistent validation logic
-- Random parameters but deterministic validation
-- Snapshot-based environment reset
-
-## Comparison: Quest Bench vs Gym Env
-
-| Feature | Quest Bench | Gym Env |
-|---------|-------------|---------|
-| **Evaluation Mode** | Single-round | Multi-round |
-| **Focus** | First-attempt accuracy | Learning & exploration |
-| **Scoring** | Problem-specific (100pt) | Multi-dimensional (35pts) |
-| **Decay Mechanism** | None | Two-level decay |
-| **Problem Types** | Atomic + Composite | Open exploration |
-| **Use Case** | Skill assessment | Training evaluation |
-
-## FAQ
-
-### Why not include implementation details in the prompt?
-
-**Answer**: To test pure understanding, not pattern matching. Real users don't provide implementation details — they describe what they want in natural language.
-
-### When should I use `--naive-mode`?
-
-**Use naive mode when**:
-- Evaluating simpler LLMs
-- Debugging failing tests
-- Training or fine-tuning models
-- Need step-by-step guidance
-
-**Use normal mode (default) when**:
-- Standard benchmark evaluation
-- Comparing advanced LLMs
-- Testing pure understanding capability
-- Simulating real user scenarios
-
-### How do LLMs know which test contract to use?
-
-**Answer**: Through semantic reasoning. The environment description lists all available contracts with their purposes. Natural language tasks include hints like "single token staking" → `simple_staking`, "LP staking pool" → `simple_lp_staking`.
-
-### What if my LLM keeps failing certain tests?
-
-1. **Check with naive mode first**: `--naive-mode`
-2. **Review error logs**: Detailed logs in `log/` directory
-3. **Test individual questions**: Use `--questions` flag
-4. **Compare with reference**: Check `docs/prompt_design_philosophy.md`
-
-### How accurate is the scoring?
-
-Very accurate. Each validator:
-- Checks transaction success
-- Validates state changes
-- Verifies function calls
-- Compares balances
-- Examines event logs
-
-Scoring is deterministic and reproducible.
-
-### Can I add my own test contracts?
-
-Yes! Follow these steps:
-1. Deploy contract in `quest_env.py`
-2. Add to `deployedContracts` mapping in `quest_controller.py`
-3. Update `system_config.json` environment description
-4. Create question definition in `question_bank/`
-5. Implement validator in `validators/`
-
-See `docs/prompt_design_philosophy.md` for guidelines.
-
-## Documentation
-
-- 📘 [Prompt Design Philosophy](doc/prompt_design_philosophy.md) - Detailed design principles
-- 📗 [Architecture Guide](bsc_quest_bench/ARCHITECTURE.md) - System architecture
-- 📙 [Changelog](bsc_quest_bench/CHANGELOG.md) - Version history
-- 📕 [Query Operations Design](doc/query_operations_design.md) - Query operations specification
+| Operation | Time |
+|-----------|------|
+| Initial Setup | ~27 seconds |
+| Per-Test Reset | ~0.002 seconds |
+| 62 Atomic Tests | ~5-10 minutes |
+| 46 Composite Tests | ~30-60 minutes |
+| Full Benchmark (108) | ~45-90 minutes |
 
 ## License
 
