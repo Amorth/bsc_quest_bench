@@ -10,6 +10,7 @@ Responsibilities:
 
 import json
 import re
+import socket
 import tempfile
 import time
 from datetime import datetime
@@ -26,6 +27,43 @@ from bsc_quest_bench.quest_executor import QuestExecutor
 from bsc_quest_bench.parameter_generator import ParameterGenerator, format_parameter_value
 
 
+def quick_anvil_health_check(port: int = 8545, timeout_seconds: float = 5.0) -> bool:
+    """
+    Quick health check for Anvil using raw socket (avoids Web3's 60s timeout)
+    
+    Args:
+        port: Anvil port (default 8545)
+        timeout_seconds: Timeout for the check (default 5s)
+    
+    Returns:
+        True if Anvil is responsive, False otherwise
+    """
+    try:
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.settimeout(timeout_seconds)
+        sock.connect(('127.0.0.1', port))
+        
+        # Send a simple eth_blockNumber request
+        request = json.dumps({
+            "jsonrpc": "2.0",
+            "method": "eth_blockNumber",
+            "params": [],
+            "id": 1
+        })
+        http_request = f"POST / HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nContent-Type: application/json\r\nContent-Length: {len(request)}\r\n\r\n{request}"
+        sock.sendall(http_request.encode())
+        
+        # Wait for response
+        response = sock.recv(4096)
+        sock.close()
+        
+        # Check if we got a valid response
+        return b'"result"' in response or b'"jsonrpc"' in response
+        
+    except (socket.timeout, socket.error, Exception):
+        return False
+
+
 class QuestController:
     """Quest Controller - Coordinate single round transaction generation evaluation"""
     
@@ -36,7 +74,7 @@ class QuestController:
         validator_class,
         api_key: Optional[str] = None,
         base_url: Optional[str] = None,
-        fork_url: str = "https://bsc-testnet.drpc.org",
+        fork_url: str = "https://bsc-dataseed.binance.org",
             test_mode: bool = False,
             test_code_path: Optional[str] = None,
             env: Optional[QuestEnvironment] = None,
@@ -310,7 +348,7 @@ class QuestController:
     def _generate_system_prompt(self) -> str:
         """
         Generate system prompt with three or four parts:
-        1. Role prompt (same for all questions)
+        1. Role prompt (different for atomic vs composite problems)
         2. Environment description (same for all questions)
         3. Question-specific context (optional, ONLY if naive_mode=True)
         4. Natural language prompt (unique per question, with random values)
@@ -319,8 +357,19 @@ class QuestController:
         This keeps the prompt minimal and tests the LLM's pure understanding ability.
         Naive mode (naive_mode=True) includes detailed implementation guidance.
         """
-        # Part 1: Role prompt (supports list or string format)
-        role_prompt_raw = self.system_config['role_prompt']
+        # Part 1: Role prompt - select based on problem type
+        # Atomic problems use atomic_role_prompt (direct code generation)
+        # Composite problems use composite_role_prompt (multi-turn planning)
+        is_composite = self.question.get('category') == 'composite_problems'
+        
+        if is_composite and 'composite_role_prompt' in self.system_config:
+            role_prompt_raw = self.system_config['composite_role_prompt']
+        elif 'atomic_role_prompt' in self.system_config:
+            role_prompt_raw = self.system_config['atomic_role_prompt']
+        else:
+            # Fallback to old 'role_prompt' for backward compatibility
+            role_prompt_raw = self.system_config.get('role_prompt', '')
+        
         role_prompt = '\n'.join(role_prompt_raw) if isinstance(role_prompt_raw, list) else role_prompt_raw
         
         # Part 2: Environment description (supports list or string format)
@@ -471,7 +520,7 @@ class QuestController:
                 'implementation_address': getattr(env, 'implementation_address', None),
                 'fallback_receiver_address': getattr(env, 'fallback_receiver_address', None),
                 'rich_address': getattr(env, 'rich_address', None),
-                'erc721_test_nft_address': getattr(env, 'erc721_test_nft_address', None),
+                'erc721_token_address': getattr(env, 'erc721_token_address', None),
             }
             print()
         else:
@@ -527,6 +576,10 @@ class QuestController:
                 if not code_blocks:
                     error_msg = "TypeScript code block not found"
                     print(f"❌ {error_msg}")
+                    print(f"📄 LLM Response Content ({len(response.content)} chars):")
+                    print("─"*60)
+                    print(response.content[:1000] if len(response.content) > 1000 else response.content)
+                    print("─"*60)
                     self.result['error'] = error_msg
                     return self.result
                 
@@ -736,7 +789,7 @@ class QuestController:
                     'simple_reward_pool': env_info.get('simple_reward_pool_address'),
                     'erc1363_token': env_info.get('erc1363_token_address'),
                     'erc1155_token': env_info.get('erc1155_token_address'),
-                    'erc721_test_nft_address': env_info.get('erc721_test_nft_address'),
+                    'erc721_token': env_info.get('erc721_token_address'),
                     'flashloan_contract': env_info.get('flashloan_contract_address'),
                     'simple_counter': env_info.get('simple_counter_address'),
                     'donation_box': env_info.get('donation_box_address'),
@@ -1247,6 +1300,9 @@ class QuestController:
             # Get requires_contract from metadata
             requires_contract = self.question.get('metadata', {}).get('requires_contract', False)
             
+            # Check if this is a query operation (read-only)
+            is_query_operation = self.question.get('metadata', {}).get('operation_type') == 'query'
+            
             execution_result = executor.execute_transaction(
                 tx,
                 validator,
@@ -1266,7 +1322,8 @@ class QuestController:
                 implementation_address=implementation_address,
                 expected_value=expected_value,
                 from_address=from_address,
-                requires_contract=requires_contract
+                requires_contract=requires_contract,
+                is_query_operation=is_query_operation
             )
             
             self.result['execution_success'] = execution_result['success']
@@ -1699,7 +1756,22 @@ class QuestController:
         # validator_class should be a factory function
         # It accepts params and returns a validator instance
         if callable(self.validator_class):
-            return self.validator_class(**params)
+            try:
+                return self.validator_class(**params)
+            except TypeError as e:
+                # Check for None values in address parameters
+                none_params = [k for k, v in params.items() if v is None and 'address' in k.lower()]
+                if none_params:
+                    raise ValueError(f"Validator creation failed: Address parameters are None: {none_params}. "
+                                     f"This may indicate a parameter generation issue. Original error: {e}")
+                raise
+            except Exception as e:
+                # Check if it's a .lower() call on None
+                if "'NoneType' object has no attribute 'lower'" in str(e):
+                    none_params = [k for k, v in params.items() if v is None]
+                    raise ValueError(f"Validator creation failed: Some parameters are None: {none_params}. "
+                                     f"Please check parameter generation.")
+                raise
         else:
             raise ValueError("validator_class must be callable")
     
@@ -2021,7 +2093,25 @@ Generate TypeScript code to execute this subtask:"""
                     # Move to next subtask
                     task_idx += 1
                 else:
-                    # Failed - retry same subtask
+                    # Failed - check if timeout error, restart Anvil before retry
+                    # Be more specific to avoid false positives from debug logs like "[DEBUG] Timeout: 60000ms"
+                    error_msg = str(action_result.get('error', '')).lower()
+                    is_timeout_error = (
+                        'read timed out' in error_msg or  # HTTP timeout
+                        'timed out. (read timeout' in error_msg or  # requests timeout
+                        'connection timed out' in error_msg or  # connection timeout
+                        'anvil is unresponsive' in error_msg or  # Anvil health check failure
+                        'anvil may need restart' in error_msg  # Our custom error message
+                    )
+                    if is_timeout_error:
+                        print(f"⚠️  Timeout detected! Restarting Anvil before retry...")
+                        if env.restart():
+                            print(f"✅ Anvil restarted successfully")
+                        else:
+                            print(f"❌ Anvil restart failed!")
+                            env.print_diagnostics()
+                    
+                    # Retry same subtask
                     retry_count += 1
                     if retry_count >= max_retries_per_subtask:
                         print(f"⚠️  Max retries ({max_retries_per_subtask}) reached for subtask {task_idx + 1}")
@@ -2076,15 +2166,26 @@ Generate TypeScript code to execute this subtask:"""
                 base_score = validation_result.get('score', 0)
                 actual_steps = self.result['total_rounds']
                 
-                # Calculate decay factor
-                decay_factor = min(1.0, optimal_steps / actual_steps) if actual_steps > 0 else 0
+                # Calculate decay factor (capped at 1.0 - no bonus for fewer steps, just 100%)
+                # If actual_steps <= optimal_steps: factor = 1.0 (full score)
+                # If actual_steps > optimal_steps: factor = optimal_steps / actual_steps (penalty)
+                if actual_steps <= 0:
+                    decay_factor = 0
+                elif actual_steps <= optimal_steps:
+                    decay_factor = 1.0  # Full score for completing in optimal or fewer steps
+                else:
+                    decay_factor = optimal_steps / actual_steps  # Penalty for extra steps
+                
                 final_score = base_score * decay_factor
                 
                 print(f"\n📉 Step-Based Score Adjustment:")
                 print(f"   Base Score: {base_score:.2f}")
                 print(f"   Optimal Steps: {optimal_steps}")
                 print(f"   Actual Steps: {actual_steps}")
-                print(f"   Decay Factor: {decay_factor:.3f} ({optimal_steps}/{actual_steps})")
+                if actual_steps <= optimal_steps:
+                    print(f"   Efficiency: 100% (completed in {actual_steps} steps, optimal is {optimal_steps})")
+                else:
+                    print(f"   Efficiency: {decay_factor:.1%} ({optimal_steps}/{actual_steps} steps)")
                 print(f"   Final Score: {final_score:.2f}")
                 
                 # Update validation result with decayed score
@@ -2105,7 +2206,11 @@ Generate TypeScript code to execute this subtask:"""
                 print("="*80)
                 print(f"Validation Passed: {'✅' if validation_result.get('passed') else '❌'}")
                 print(f"Base Score: {validation_result.get('base_score', 0):.2f}/{validation_result.get('max_score', 100)}")
-                print(f"Final Score: {validation_result.get('score', 0):.2f}/{validation_result.get('max_score', 100)} (after {decay_factor:.1%} decay)")
+                if actual_steps <= optimal_steps:
+                    efficiency_note = "100% efficiency"
+                else:
+                    efficiency_note = f"{decay_factor:.1%} efficiency"
+                print(f"Final Score: {validation_result.get('score', 0):.2f}/{validation_result.get('max_score', 100)} ({efficiency_note})")
                 print(f"Steps: {actual_steps} used (optimal: {optimal_steps})")
                 print(f"Status: {validation_result.get('status', 'unknown')}")
                 print("="*80)
@@ -2148,7 +2253,7 @@ Generate TypeScript code to execute this subtask:"""
             'implementation_address': getattr(env, 'implementation_address', None),
             'fallback_receiver_address': getattr(env, 'fallback_receiver_address', None),
             'rich_address': getattr(env, 'rich_address', None),
-            'erc721_test_nft_address': getattr(env, 'erc721_test_nft_address', None),
+            'erc721_token_address': getattr(env, 'erc721_token_address', None),
         }
     
     def _parse_planning_response(self, response_content: str) -> List[Dict[str, Any]]:
@@ -2321,6 +2426,10 @@ Generate TypeScript code to execute this subtask:"""
     
     def _handle_query_action(self, parsed_response: Dict[str, Any], env, env_info: Dict[str, Any]) -> Dict[str, Any]:
         """Handle query action (e.g., check balance)"""
+        # Quick health check BEFORE any RPC calls
+        if not quick_anvil_health_check(port=env.anvil_port, timeout_seconds=5.0):
+            return {'success': False, 'error': 'Anvil is unresponsive (health check failed). Anvil may need restart.'}
+        
         query_type = parsed_response.get('query_type', 'balance')
         
         if query_type == 'balance' or query_type == 'token_balance':
@@ -2382,7 +2491,7 @@ Generate TypeScript code to execute this subtask:"""
                 'simple_reward_pool': env_info.get('simple_reward_pool_address'),
                 'erc1363_token': env_info.get('erc1363_token_address'),
                 'erc1155_token': env_info.get('erc1155_token_address'),
-                'erc721_test_nft_address': env_info.get('erc721_test_nft_address'),
+                'erc721_token': env_info.get('erc721_token_address'),
                 'flashloan_contract': env_info.get('flashloan_contract_address'),
                 'simple_counter': env_info.get('simple_counter_address'),
                 'donation_box': env_info.get('donation_box_address'),
@@ -2439,6 +2548,10 @@ Generate TypeScript code to execute this subtask:"""
                 private_key=env_info['test_private_key']
             )
             
+            # Quick health check BEFORE any RPC calls (using 5s timeout socket, not 60s Web3)
+            if not quick_anvil_health_check(port=env.anvil_port, timeout_seconds=5.0):
+                return {'success': False, 'error': 'Anvil is unresponsive (health check failed). Anvil may need restart.'}
+            
             # Prepare transaction
             from eth_utils import to_checksum_address
             chain_id = env.w3.eth.chain_id
@@ -2464,8 +2577,10 @@ Generate TypeScript code to execute this subtask:"""
             if 'data' in tx and tx['data']:
                 transaction['data'] = tx['data']
             
-            # Sign and send
+            # Sign transaction (no RPC call needed)
             signed_tx = env.w3.eth.account.sign_transaction(transaction, env_info['test_private_key'])
+            
+            # Send transaction
             tx_hash = env.w3.eth.send_raw_transaction(signed_tx.raw_transaction)
             
             # Wait for receipt
@@ -2480,7 +2595,11 @@ Generate TypeScript code to execute this subtask:"""
             }
             
         except Exception as e:
-            return {'success': False, 'error': str(e)}
+            # Add diagnostic info to error
+            error_msg = str(e)
+            if 'timed out' in error_msg.lower():
+                error_msg = f"{error_msg}. Anvil may be unresponsive - consider restarting."
+            return {'success': False, 'error': error_msg}
         finally:
             import os
             if os.path.exists(code_file):
@@ -2501,13 +2620,35 @@ Generate TypeScript code to execute this subtask:"""
             return f"Action completed: {json.dumps(action_result)}"
     
     def _get_final_chain_state(self, env, env_info: Dict[str, Any]) -> Dict[str, Any]:
-        """Get final chain state for validation"""
-        # TODO: Implement comprehensive state collection
-        return {
-            'block_number': env.w3.eth.block_number,
+        """Get final chain state for validation with timeout protection"""
+        result = {
             'agent_address': env_info['test_address'],
-            'agent_balance': env.w3.eth.get_balance(env_info['test_address'])
+            'block_number': None,
+            'agent_balance': None
         }
+        
+        # Quick health check BEFORE any RPC calls
+        if not quick_anvil_health_check(port=env.anvil_port, timeout_seconds=5.0):
+            print(f"⚠️  Warning: Anvil is unresponsive, skipping chain state query")
+            result['block_number'] = 0
+            result['agent_balance'] = 0
+            return result
+        
+        # Get block number
+        try:
+            result['block_number'] = env.w3.eth.block_number
+        except Exception as e:
+            print(f"⚠️  Warning: Could not get block number: {e}")
+            result['block_number'] = 0
+        
+        # Get balance
+        try:
+            result['agent_balance'] = env.w3.eth.get_balance(env_info['test_address'])
+        except Exception as e:
+            print(f"⚠️  Warning: Could not get agent balance: {e}")
+            result['agent_balance'] = 0
+        
+        return result
     
     def save_result(self, output_path: str):
         """

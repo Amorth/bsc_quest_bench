@@ -30,9 +30,20 @@ class RemoveLiquidityTokensValidator:
             liquidity_percentage: Percentage of LP tokens to remove
             **params: Additional parameters
         """
-        self.router_address = to_checksum_address(params['router_address'])
-        self.token_a_address = to_checksum_address(params['token_a_address'])
-        self.token_b_address = to_checksum_address(params['token_b_address'])
+        router_address = params.get('router_address')
+        token_a_address = params.get('token_a_address')
+        token_b_address = params.get('token_b_address')
+        
+        if not router_address:
+            raise ValueError("router_address is required but was None or empty")
+        if not token_a_address:
+            raise ValueError("token_a_address is required but was None or empty")
+        if not token_b_address:
+            raise ValueError("token_b_address is required but was None or empty")
+        
+        self.router_address = to_checksum_address(router_address)
+        self.token_a_address = to_checksum_address(token_a_address)
+        self.token_b_address = to_checksum_address(token_b_address)
         self.liquidity_percentage = Decimal(str(params.get('liquidity_percentage', 50)))
         
         # Expected function selector for removeLiquidity

@@ -12,7 +12,7 @@ from typing import Dict, Any, List
 class HarvestRewardsValidator:
     """Validator for harvesting farming rewards"""
     
-    def __init__(self, reward_token_address: str, pool_address: str, user_address: str):
+    def __init__(self, reward_token_address: str, pool_address: str, user_address: str, **kwargs):
         """
         Initialize validator with parameters
         
@@ -21,6 +21,13 @@ class HarvestRewardsValidator:
             pool_address: Reward pool contract address
             user_address: User's wallet address
         """
+        if not reward_token_address:
+            raise ValueError("reward_token_address is required but was None or empty")
+        if not pool_address:
+            raise ValueError("pool_address is required but was None or empty")
+        if not user_address:
+            raise ValueError("user_address is required but was None or empty")
+        
         self.reward_token_address = reward_token_address.lower()
         self.pool_address = pool_address.lower()
         self.user_address = user_address.lower()

@@ -80,7 +80,7 @@
       "dynamic": true,
       "generation": {
         "method": "from_env",
-        "env_key": "erc721_test_nft_address"
+        "env_key": "erc721_token_address"
       }
     },
     "token_id1": {

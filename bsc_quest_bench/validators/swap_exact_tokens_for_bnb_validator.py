@@ -17,7 +17,8 @@ class SwapExactTokensForBNBValidator:
         token_address: str,
         amount_in: float,
         token_decimals: int = 18,
-        slippage: float = 5.0
+        slippage: float = 5.0,
+        **kwargs  # Accept extra params
     ):
         """
         Initialize validator
@@ -29,6 +30,11 @@ class SwapExactTokensForBNBValidator:
             token_decimals: Token decimals (default: 18)
             slippage: Slippage tolerance in percent (default: 5.0)
         """
+        if not router_address:
+            raise ValueError("router_address is required but was None or empty")
+        if not token_address:
+            raise ValueError("token_address is required but was None or empty")
+        
         self.router_address = router_address.lower()
         self.token_address = token_address.lower()
         

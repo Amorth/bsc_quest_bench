@@ -77,7 +77,7 @@
         "addresses": [
           "0x10ED43C718714eb63d5aA57B78B54704E256024E",
           "0x13f4EA83D0bd40E75C8222255bc855a974568Dd4",
-          "0x1B81D678ffb9C0263b24A97847620C99d213eB14"
+          "0x1b81D678ffb9C0263b24A97847620C99d213eB14"
         ],
         "comment": "PancakeSwap Router, Venus Protocol, PancakeSwap V3 Router"
       }

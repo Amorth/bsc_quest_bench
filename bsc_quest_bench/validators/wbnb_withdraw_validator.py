@@ -10,7 +10,7 @@ from typing import Dict, Any
 class WBNBWithdrawValidator:
     """Validator for WBNB withdraw transactions"""
     
-    def __init__(self, wbnb_address: str, amount: float):
+    def __init__(self, wbnb_address: str, amount: float, **kwargs):
         """
         Initialize validator
         
@@ -19,6 +19,9 @@ class WBNBWithdrawValidator:
             amount: Expected withdrawal amount in WBNB/BNB (float)
         """
         from decimal import Decimal
+        
+        if not wbnb_address:
+            raise ValueError("wbnb_address is required but was None or empty")
         
         self.expected_wbnb = wbnb_address.lower()
         # Convert amount to wei

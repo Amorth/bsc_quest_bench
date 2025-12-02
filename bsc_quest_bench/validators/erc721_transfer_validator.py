@@ -10,7 +10,7 @@ from typing import Dict, Any
 class ERC721TransferValidator:
     """Validator for ERC721 NFT transfer transactions"""
     
-    def __init__(self, nft_address: str, to_address: str, token_id: int):
+    def __init__(self, nft_address: str, to_address: str, token_id: int, **kwargs):
         """
         Initialize validator
         
@@ -19,6 +19,11 @@ class ERC721TransferValidator:
             to_address: Expected recipient address
             token_id: NFT token ID that should be transferred
         """
+        if not nft_address:
+            raise ValueError("nft_address is required but was None or empty")
+        if not to_address:
+            raise ValueError("to_address is required but was None or empty")
+        
         self.expected_nft = nft_address.lower()
         self.expected_recipient = to_address.lower()
         self.token_id = token_id
