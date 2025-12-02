@@ -600,12 +600,22 @@ The benchmark runs on a **local Anvil fork** of BSC mainnet:
 
 ### RPC Rate Limit Errors
 
-If you see `HTTP error 429` or "rate limit reached":
+The default RPC is `https://bsc-dataseed.binance.org` (free public endpoint). If you see `HTTP error 429` or "rate limit reached", consider using a paid RPC provider:
 
 ```bash
-# Use BSC public RPC instead
-python run_quest_bench.py --model gpt-4o --fork-url https://bsc-dataseed.binance.org
+# Use paid RPC provider (QuickNode, Alchemy, Ankr, etc.)
+python run_quest_bench.py --model gpt-4o --fork-url https://your-paid-rpc-endpoint.com
+
+# Alternative free BSC endpoints (may also have rate limits)
+python run_quest_bench.py --model gpt-4o --fork-url https://bsc-dataseed1.binance.org
+python run_quest_bench.py --model gpt-4o --fork-url https://bsc-dataseed2.binance.org
 ```
+
+**Recommended paid RPC providers:**
+- [QuickNode](https://www.quicknode.com/) - Fast and reliable
+- [Alchemy](https://www.alchemy.com/) - Developer friendly
+- [Ankr](https://www.ankr.com/) - Affordable pricing
+- [NodeReal](https://nodereal.io/) - BSC optimized
 
 ### Anvil Connection Issues
 
