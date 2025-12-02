@@ -31,9 +31,20 @@ class AddLiquidityTokensValidator:
             token_a_decimals: Token A decimals
             token_b_decimals: Token B decimals
         """
-        self.router_address = params.get('router_address', '').lower()
-        self.token_a_address = params.get('token_a_address', '').lower()
-        self.token_b_address = params.get('token_b_address', '').lower()
+        router_address = params.get('router_address')
+        token_a_address = params.get('token_a_address')
+        token_b_address = params.get('token_b_address')
+        
+        if not router_address:
+            raise ValueError("router_address is required but was None or empty")
+        if not token_a_address:
+            raise ValueError("token_a_address is required but was None or empty")
+        if not token_b_address:
+            raise ValueError("token_b_address is required but was None or empty")
+        
+        self.router_address = router_address.lower()
+        self.token_a_address = token_a_address.lower()
+        self.token_b_address = token_b_address.lower()
         self.amount_token_a = Decimal(str(params.get('amount_token_a', 0)))
         self.amount_token_b = Decimal(str(params.get('amount_token_b', 0)))
         self.token_a_decimals = params.get('token_a_decimals', 18)

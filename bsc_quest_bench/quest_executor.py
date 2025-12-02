@@ -54,7 +54,8 @@ class QuestExecutor:
         implementation_address: str = None,
         expected_value: int = None,
         from_address: str = None,
-        requires_contract: bool = False
+        requires_contract: bool = False,
+        is_query_operation: bool = False
     ) -> Dict[str, Any]:
         """
         Execute transaction and verify
@@ -69,6 +70,7 @@ class QuestExecutor:
             lp_token_address: LP token address (optional, for liquidity operations)
             counter_contract_address: SimpleCounter contract address (for querying counter value)
             message_board_contract_address: MessageBoard contract address (for querying message value)
+            is_query_operation: Whether this is a query operation (read-only)
             
         Returns:
             Dictionary containing transaction result and validation result
@@ -81,6 +83,20 @@ class QuestExecutor:
         if 'query_result' in tx:
             print("🔍 Detected query operation (no transaction required)")
             return self._handle_query_operation(tx, validator)
+        
+        # Check if this is a query operation with transaction object format
+        # (LLM returned tx object for a view call instead of query_result)
+        if is_query_operation and 'to' in tx and 'data' in tx:
+            print("🔍 Detected query operation with transaction object format")
+            print("   Converting to eth_call and executing...")
+            return self._execute_view_call_as_query(tx, validator)
+        
+        # Check if this is a query operation with direct result format
+        # (LLM returned query result directly, e.g., {address, nonce} or {balance_wei, balance_bnb})
+        if is_query_operation and 'to' not in tx:
+            print("🔍 Detected query operation with direct result format")
+            print("   Wrapping LLM result into query_result format...")
+            return self._handle_direct_query_result(tx, validator)
         
         # Get target address (if any)
         target_address = tx.get('to')
@@ -864,15 +880,28 @@ class QuestExecutor:
         Args:
             result: Validation result dictionary
         """
+        # Handle None result
+        if result is None:
+            print(f"\nValidation Result:")
+            print(f"  ⚠️ No validation result returned (validator returned None)")
+            return
+        
+        # Handle non-dict result
+        if not isinstance(result, dict):
+            print(f"\nValidation Result:")
+            print(f"  ⚠️ Invalid validation result type: {type(result)}")
+            return
+        
         print(f"\nValidation Result:")
         print(f"  Passed: {'✅ Yes' if result.get('passed') else '❌ No'}")
         print(f"  Score: {result.get('score', 0)} / {result.get('max_score', 0)}")
         
         if result.get('checks'):
             print(f"\nChecks:")
-            for check in result['checks']:
-                status = "✅" if check.get('passed') else "❌"
-                print(f"    {status} {check.get('name')}: {check.get('message', '')}")
+            for check in result.get('checks', []):
+                if isinstance(check, dict):
+                    status = "✅" if check.get('passed') else "❌"
+                    print(f"    {status} {check.get('name')}: {check.get('message', '')}")
         
         if result.get('feedback'):
             print(f"\nFeedback: {result.get('feedback')}")
@@ -1496,6 +1525,287 @@ class QuestExecutor:
         
         return {
             'success': success,
+            'query_result': query_result,
+            'validation': validation_result
+        }
+    
+    def _execute_view_call_as_query(
+        self,
+        tx: Dict[str, Any],
+        validator=None
+    ) -> Dict[str, Any]:
+        """
+        Execute a transaction object as an eth_call (for query operations where LLM
+        returned a transaction object instead of query_result).
+        
+        This allows LLM to generate standard transaction objects for view calls,
+        and the framework executes them as eth_call and validates the result.
+        
+        Args:
+            tx: Transaction object with {to, data, ...}
+            validator: Validator instance
+            
+        Returns:
+            Dictionary containing query result and validation result
+        """
+        from eth_utils import to_checksum_address
+        
+        print("="*80)
+        print("🔍 Executing view call as query operation...")
+        print("="*80)
+        
+        to_address = tx.get('to')
+        data = tx.get('data')
+        
+        if not to_address or not data:
+            print("❌ Missing 'to' or 'data' in transaction object")
+            return {
+                'success': False,
+                'error': "Missing 'to' or 'data' in transaction object for view call"
+            }
+        
+        try:
+            # Execute eth_call
+            print(f"   To: {to_address}")
+            print(f"   Data: {data[:66]}..." if len(data) > 66 else f"   Data: {data}")
+            
+            result = self.w3.eth.call({
+                'to': to_checksum_address(to_address),
+                'data': data
+            })
+            
+            result_hex = result.hex()
+            print(f"   ✅ eth_call succeeded")
+            print(f"   Result: {result_hex[:66]}..." if len(result_hex) > 66 else f"   Result: {result_hex}")
+            
+            # Parse the result based on common return types
+            # For most ERC20 view functions (balance, allowance), result is uint256
+            # Handle empty result (0x) which is valid for some calls
+            if result_hex == '0x' or result_hex == '' or len(result_hex) <= 2:
+                result_value = 0
+                print(f"   ⚠️  Empty result (0x), treating as 0")
+            else:
+                try:
+                    # Remove '0x' prefix if present, then parse
+                    hex_str = result_hex[2:] if result_hex.startswith('0x') else result_hex
+                    result_value = int(hex_str, 16) if hex_str else 0
+                except ValueError as e:
+                    print(f"   ⚠️  Failed to parse result as int: {e}, treating as 0")
+                    result_value = 0
+            
+            # Build query_result in the format validators expect
+            query_result = {
+                'success': True,
+                'data': {
+                    'raw_result': result_hex,
+                    'result_value': str(result_value),
+                    # Common aliases for different validators
+                    'allowance_raw': str(result_value),
+                    'balance_raw': str(result_value),
+                    'value_raw': str(result_value)
+                }
+            }
+            
+            print(f"   Parsed value: {result_value}")
+            
+        except Exception as e:
+            print(f"❌ eth_call failed: {e}")
+            query_result = {
+                'success': False,
+                'error': str(e)
+            }
+            return {
+                'success': False,
+                'error': str(e),
+                'query_result': query_result
+            }
+        
+        # Build tx object with query_result for validator
+        tx_with_result = {
+            'query_result': query_result,
+            'original_tx': tx
+        }
+        
+        # Get state for validation (same as _handle_query_operation)
+        state_before = {'balance': 0, 'token_balance': 0, 'allowance': 0}
+        
+        # Get actual chain state for validation
+        if validator:
+            try:
+                # For allowance validators
+                if hasattr(validator, 'owner_address') and hasattr(validator, 'spender_address'):
+                    token_address = to_checksum_address(validator.token_address)
+                    owner_address = to_checksum_address(validator.owner_address)
+                    spender_address = to_checksum_address(validator.spender_address)
+                    
+                    # ERC20 allowance
+                    allowance_data = '0xdd62ed3e' + '000000000000000000000000' + owner_address[2:] + '000000000000000000000000' + spender_address[2:]
+                    allowance_result = self.w3.eth.call({
+                        'to': token_address,
+                        'data': allowance_data
+                    })
+                    allowance = int(allowance_result.hex(), 16)
+                    state_before['allowance'] = allowance
+                    
+                    decimals = getattr(validator, 'token_decimals', 18)
+                    print(f"📊 Actual allowance (for validation): {allowance} ({allowance / 10**decimals:.6f} tokens)")
+                
+                # For balance validators
+                elif hasattr(validator, 'query_address') and hasattr(validator, 'token_address'):
+                    query_address = to_checksum_address(validator.query_address)
+                    token_address = to_checksum_address(validator.token_address)
+                    
+                    # ERC20 balanceOf
+                    balance_data = '0x70a08231' + '000000000000000000000000' + query_address[2:]
+                    balance_result = self.w3.eth.call({
+                        'to': token_address,
+                        'data': balance_data
+                    })
+                    token_balance = int(balance_result.hex(), 16)
+                    state_before['token_balance'] = token_balance
+                    
+                    decimals = getattr(validator, 'token_decimals', 18)
+                    print(f"📊 Actual token balance (for validation): {token_balance} ({token_balance / 10**decimals:.6f} tokens)")
+                
+                # For BNB balance validators
+                elif hasattr(validator, 'query_address') and not hasattr(validator, 'token_address'):
+                    query_address = to_checksum_address(validator.query_address)
+                    balance = self.w3.eth.get_balance(query_address)
+                    state_before['balance'] = balance
+                    print(f"📊 Actual BNB balance (for validation): {balance} wei ({balance / 10**18:.6f} BNB)")
+                    
+            except Exception as e:
+                print(f"⚠️  Warning: Could not get actual state for validation: {e}")
+        
+        # Validate query result
+        validation_result = None
+        if validator:
+            print("\n" + "="*80)
+            print("🔍 Starting validation...")
+            print("="*80)
+            
+            validation_result = validator.validate(
+                tx=tx_with_result,
+                receipt={},
+                state_before=state_before,
+                state_after={}
+            )
+            
+            self._print_validation_result(validation_result)
+        
+        return {
+            'success': True,
+            'query_result': query_result,
+            'validation': validation_result
+        }
+    
+    def _handle_direct_query_result(
+        self,
+        tx: Dict[str, Any],
+        validator=None
+    ) -> Dict[str, Any]:
+        """
+        Handle query operation where LLM returned query result directly
+        (e.g., {address, nonce} or {balance_wei, balance_bnb})
+        instead of a transaction object or query_result wrapper.
+        
+        This wraps the LLM result into the expected query_result format
+        that validators expect.
+        
+        Args:
+            tx: LLM return value (direct query result, not a transaction object)
+            validator: Validator instance
+            
+        Returns:
+            Dictionary containing query result and validation result
+        """
+        from eth_utils import to_checksum_address
+        
+        print("="*80)
+        print("🔍 Processing direct query result...")
+        print("="*80)
+        print(f"   LLM returned: {tx}")
+        
+        # Wrap LLM result into query_result format
+        query_result = {
+            'success': True,
+            'data': tx  # LLM's direct return value becomes the data
+        }
+        
+        # Build tx object with query_result for validator
+        tx_with_result = {
+            'query_result': query_result
+        }
+        
+        # Get state for validation
+        state_before = {'balance': 0, 'token_balance': 0, 'allowance': 0}
+        
+        # Get reference values from chain for validation
+        if validator:
+            try:
+                # For nonce query validators
+                if hasattr(validator, 'query_address') and not hasattr(validator, 'token_address') and not hasattr(validator, 'nft_address'):
+                    query_address = to_checksum_address(validator.query_address)
+                    
+                    # Get nonce
+                    try:
+                        nonce = self.w3.eth.get_transaction_count(query_address, 'pending')
+                        state_before['reference_nonce'] = nonce
+                        print(f"📊 Actual nonce (for validation): {nonce}")
+                    except Exception as e:
+                        print(f"⚠️  Warning: Could not get nonce: {e}")
+                    
+                    # Also get balance (for BNB balance queries)
+                    try:
+                        balance = self.w3.eth.get_balance(query_address)
+                        state_before['balance'] = balance
+                        print(f"📊 Actual balance (for validation): {balance} wei ({balance / 10**18:.6f} BNB)")
+                    except Exception as e:
+                        print(f"⚠️  Warning: Could not get balance: {e}")
+                
+                # For block number query
+                try:
+                    current_block = self.w3.eth.block_number
+                    state_before['reference_block_number'] = current_block
+                except Exception as e:
+                    print(f"⚠️  Warning: Could not get current block number: {e}")
+                
+                # For gas price query
+                try:
+                    latest_block = self.w3.eth.get_block('latest')
+                    base_fee = latest_block.get('baseFeePerGas', 0)
+                    try:
+                        max_priority_fee = self.w3.eth.max_priority_fee
+                    except:
+                        max_priority_fee = 1 * 10**9  # 1 Gwei fallback
+                    
+                    max_fee = base_fee + max_priority_fee
+                    state_before['reference_max_fee_per_gas'] = max_fee
+                    state_before['reference_max_priority_fee_per_gas'] = max_priority_fee
+                except Exception as e:
+                    print(f"⚠️  Warning: Could not get gas price info: {e}")
+                    
+            except Exception as e:
+                print(f"⚠️  Warning: Error getting reference values: {e}")
+        
+        # Validate query result
+        validation_result = None
+        if validator:
+            print("\n" + "="*80)
+            print("🔍 Starting validation...")
+            print("="*80)
+            
+            validation_result = validator.validate(
+                tx=tx_with_result,
+                receipt={},
+                state_before=state_before,
+                state_after={}
+            )
+            
+            self._print_validation_result(validation_result)
+        
+        return {
+            'success': True,
             'query_result': query_result,
             'validation': validation_result
         }

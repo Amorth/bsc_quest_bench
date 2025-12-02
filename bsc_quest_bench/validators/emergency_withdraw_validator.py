@@ -4,7 +4,16 @@ class EmergencyWithdrawValidator:
     """Validator for emergency_withdraw operation"""
     
     def __init__(self, lp_token_address: str, reward_token_address: str, 
-                 pool_address: str, user_address: str):
+                 pool_address: str, user_address: str, **kwargs):
+        if not lp_token_address:
+            raise ValueError("lp_token_address is required but was None or empty")
+        if not reward_token_address:
+            raise ValueError("reward_token_address is required but was None or empty")
+        if not pool_address:
+            raise ValueError("pool_address is required but was None or empty")
+        if not user_address:
+            raise ValueError("user_address is required but was None or empty")
+        
         self.lp_token_address = lp_token_address.lower()
         self.reward_token_address = reward_token_address.lower()
         self.pool_address = pool_address.lower()

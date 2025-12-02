@@ -104,6 +104,14 @@ class ParameterGenerator:
             if not address:
                 raise ValueError(f"Address not found in environment: {env_key}")
             return address
+        elif method == 'agent_address':
+            # Return the test account address (agent's own address)
+            if self.environment and hasattr(self.environment, 'test_address'):
+                return self.environment.test_address
+            else:
+                # Generate a placeholder if environment not available
+                placeholder = Account.create()
+                return placeholder.address
         else:
             raise ValueError(f"Unsupported address generation method: {method}")
     

@@ -25,7 +25,8 @@ class AddLiquidityBNBTokenValidator:
         amount_bnb: float,
         amount_token: float,
         token_decimals: int = 18,
-        slippage: float = 5.0
+        slippage: float = 5.0,
+        **kwargs  # Accept extra params
     ):
         """
         Initialize validator
@@ -38,6 +39,11 @@ class AddLiquidityBNBTokenValidator:
             token_decimals: Token decimals
             slippage: Slippage tolerance percentage
         """
+        if not router_address:
+            raise ValueError("router_address is required but was None or empty")
+        if not token_address:
+            raise ValueError("token_address is required but was None or empty")
+        
         self.router_address = router_address.lower()
         self.token_address = token_address.lower()
         self.amount_bnb = Decimal(str(amount_bnb))

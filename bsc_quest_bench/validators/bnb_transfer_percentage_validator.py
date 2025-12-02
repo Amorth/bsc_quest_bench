@@ -92,14 +92,16 @@ class BNBTransferPercentageValidator:
         
         # Check 4: Gas settings reasonable (10 points)
         gas_used = receipt.get('gasUsed', 0)
-        gas_limit = tx.get('gas', 0)
+        # Support both 'gas' (web3.py style) and 'gasLimit' (ethers.js style)
+        gas_limit = tx.get('gas', 0) or tx.get('gasLimit', 0)
         
-        # Basic transfer gas should be between 21000-30000
-        # gas limit should be sufficient but not excessive (no more than 3x actual usage)
+        # Basic transfer gas should be around 21000
+        # gas limit should be sufficient and not excessively high
+        # Note: system_config suggests gasLimit: 100000n as default, so we use 500000 as upper bound
         gas_reasonable = (
             gas_used >= 21000 and 
             gas_limit >= gas_used and 
-            gas_limit <= gas_used * 3
+            gas_limit <= 500000
         )
         
         checks.append({

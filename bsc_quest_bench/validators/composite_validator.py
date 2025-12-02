@@ -1178,7 +1178,14 @@ class CompositeValidator:
                 amount_tokens = amount_wei / (10**18)
                 
                 # Get token_address from composite definition
+                # Try multiple parameter names for compatibility
                 token_address = self._get_param_value('token_address')
+                if not token_address:
+                    # Fallback to cake_address for CAKE staking scenarios
+                    token_address = self._get_param_value('cake_address')
+                if not token_address:
+                    # Fallback to staking_token_address
+                    token_address = self._get_param_value('staking_token_address')
                 
                 print(f"   Decoded staking parameters:")
                 print(f"   - pool_address: {pool_address}")

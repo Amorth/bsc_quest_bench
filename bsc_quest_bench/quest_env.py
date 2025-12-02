@@ -29,20 +29,20 @@ class QuestEnvironment:
         Initialize Quest environment
         
         Args:
-            fork_url: BSC RPC URL (default use free testnet RPC)
-                     - None: Use default free testnet RPC (suitable for open source/CI)
+            fork_url: BSC RPC URL
+                     - None: Use default BSC Mainnet public RPC (suitable for open source/CI)
                      - Custom URL: Use paid or private RPC (suitable for dev/prod)
-                     Recommended to pass via environment variable or config file
+                     Can also set via BSC_FORK_URL environment variable
             chain_id: Chain ID (56=BSC Mainnet, 97=BSC Testnet, default 56)
             anvil_port: Anvil port
         """
         # Fork URL Priority:
         # 1. Passed fork_url parameter
         # 2. Environment variable BSC_FORK_URL
-        # 3. Default free testnet RPC
+        # 3. Default BSC Mainnet public RPC
         if fork_url is None:
             import os
-            fork_url = os.getenv('BSC_FORK_URL', 'https://bsc-testnet.drpc.org')
+            fork_url = os.getenv('BSC_FORK_URL', 'https://bsc-dataseed.binance.org')
         
         self.fork_url = fork_url
         self.chain_id = chain_id
@@ -79,7 +79,13 @@ class QuestEnvironment:
         session.trust_env = False  # Do not use proxy settings from environment variables
         
         from web3.providers.rpc import HTTPProvider
-        provider = HTTPProvider(anvil_rpc, session=session)
+        # Set explicit timeout for HTTP requests to avoid indefinite blocking
+        # timeout=(connect_timeout, read_timeout) in seconds
+        provider = HTTPProvider(
+            anvil_rpc, 
+            session=session,
+            request_kwargs={'timeout': 60}  # 60 second timeout for RPC requests
+        )
         self.w3 = Web3(provider)
         
         # 2.1 Inject POA middleware (BSC is a POA chain)
@@ -154,7 +160,7 @@ class QuestEnvironment:
             'simple_reward_pool_address': getattr(self, 'simple_reward_pool_address', None),
             'erc1363_token_address': getattr(self, 'erc1363_token_address', None),
             'erc1155_token_address': getattr(self, 'erc1155_token_address', None),
-            'erc721_test_nft_address': getattr(self, 'erc721_test_nft_address', None),
+            'erc721_token_address': getattr(self, 'erc721_token_address', None),
             'flashloan_contract_address': getattr(self, 'flashloan_contract_address', None),
             'simple_counter_address': getattr(self, 'simple_counter_address', None),
             'donation_box_address': getattr(self, 'donation_box_address', None),
@@ -220,6 +226,41 @@ class QuestEnvironment:
             print(f"⚠️  Failed to reset balance: {e}")
             return False
     
+    def _quick_health_check(self, timeout_seconds: float = 5.0) -> bool:
+        """
+        Quick health check for Anvil - returns False if unresponsive
+        Uses a very short timeout to detect frozen Anvil quickly
+        """
+        import socket
+        import json
+        
+        try:
+            # Use raw socket with short timeout instead of Web3 (which has 60s timeout)
+            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            sock.settimeout(timeout_seconds)
+            sock.connect(('127.0.0.1', self.anvil_port))
+            
+            # Send a simple eth_blockNumber request
+            request = json.dumps({
+                "jsonrpc": "2.0",
+                "method": "eth_blockNumber",
+                "params": [],
+                "id": 1
+            })
+            http_request = f"POST / HTTP/1.1\r\nHost: 127.0.0.1:{self.anvil_port}\r\nContent-Type: application/json\r\nContent-Length: {len(request)}\r\n\r\n{request}"
+            sock.sendall(http_request.encode())
+            
+            # Wait for response
+            response = sock.recv(4096)
+            sock.close()
+            
+            # Check if we got a valid response
+            return b'"result"' in response or b'"jsonrpc"' in response
+            
+        except (socket.timeout, socket.error, Exception) as e:
+            print(f"  ⚠️  Quick health check failed: {e}")
+            return False
+    
     def reset(self):
         """
         Fast reset environment state (use snapshot revert, keep Anvil process running)
@@ -233,6 +274,12 @@ class QuestEnvironment:
             return False
         
         print("🔄 Fast resetting environment state (reverting snapshot)...")
+        
+        # Quick health check before attempting RPC calls
+        if not self._quick_health_check(timeout_seconds=5.0):
+            print("  ❌ Anvil is unresponsive (failed quick health check)")
+            print("  ⚠️  Skipping reset, recommend restart instead")
+            return False
         
         try:
             # 1. Revert to initial snapshot
@@ -469,7 +516,23 @@ class QuestEnvironment:
             
             # Re-setup everything
             self._set_balance(self.test_address, 100 * 10**18)
-            self._set_token_balances()
+            self._preheat_contracts()
+            self._set_token_balances()  # This also sets LP token balances
+            
+            # Re-deploy custom contracts (they don't exist in fork)
+            # Note: NFT ownership is handled within _deploy_erc721_test_nft()
+            self._deploy_erc1363_token()
+            self._deploy_erc721_test_nft()
+            self._deploy_erc1155_token()
+            self._deploy_flashloan_receiver()
+            self._deploy_simple_counter()
+            self._deploy_donation_box()
+            self._deploy_message_board()
+            self._deploy_delegate_call_contracts()
+            self._deploy_fallback_receiver()
+            self._deploy_simple_staking()
+            self._deploy_simple_lp_staking()
+            self._deploy_simple_reward_pool()
             self._setup_rich_account()
             
             # Create new snapshot
@@ -547,17 +610,33 @@ class QuestEnvironment:
             '--fork-url', self.fork_url,
             '--port', str(self.anvil_port),
             '--host', '127.0.0.1',
-            '--no-storage-caching',  # Disable storage caching, force pull from remote
-            '--compute-units-per-second', '300',  # Reduce request rate to avoid rate limiting
-            '--timeout', '120000',  # 120 second timeout for fork requests (ms)
-            '--retries', '5',  # Retry failed fork requests
+            # NOTE: Removed --no-storage-caching to allow caching of remote data
+            # This significantly reduces the number of requests to the upstream RPC
+            # and prevents request queue buildup that causes timeouts
+            '--timeout', '60000',  # 60 second timeout for fork requests (ms)
+            '--retries', '3',  # Retry failed fork requests
+            # NOTE: Removed --compute-units-per-second to avoid request queue buildup
+            # The rate limiting was causing timeouts when many requests accumulated
         ]
+        
+        # Create environment without proxy settings
+        # This is critical for WSL environments with system proxy that might interfere
+        anvil_env = os.environ.copy()
+        # Remove all proxy-related environment variables
+        proxy_vars = ['http_proxy', 'https_proxy', 'HTTP_PROXY', 'HTTPS_PROXY', 
+                      'all_proxy', 'ALL_PROXY', 'ftp_proxy', 'FTP_PROXY']
+        for var in proxy_vars:
+            anvil_env.pop(var, None)
+        # Set no_proxy to bypass any remaining proxy settings
+        anvil_env['no_proxy'] = '*'
+        anvil_env['NO_PROXY'] = '*'
         
         # Capture stderr for diagnostics
         self.anvil_process = subprocess.Popen(
             anvil_cmd_list,
             stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE
+            stderr=subprocess.PIPE,
+            env=anvil_env  # Use proxy-free environment
         )
         
         # 6. Wait for start (increase timeout)
@@ -632,18 +711,40 @@ class QuestEnvironment:
     def _kill_zombie_anvil(self):
         """
         Clean up potential zombie Anvil processes
+        
+        IMPORTANT: Only kills processes that are actually Anvil (binary name contains 'anvil'),
+        NOT all processes using the port (which would kill the Python test runner!)
         """
+        current_pid = os.getpid()  # Get current process PID to avoid suicide
+        
         try:
             import psutil
             
             killed_count = 0
-            for proc in psutil.process_iter(['pid', 'name', 'cmdline']):
+            for proc in psutil.process_iter(['pid', 'name', 'cmdline', 'exe']):
                 try:
-                    # Check if it's an anvil process
+                    # Skip current process
+                    if proc.info['pid'] == current_pid:
+                        continue
+                    
+                    # Check if it's an anvil process by examining the executable or name
+                    proc_name = proc.info.get('name', '').lower()
+                    proc_exe = (proc.info.get('exe') or '').lower()
                     cmdline = proc.info.get('cmdline', [])
-                    if cmdline and 'anvil' in ' '.join(cmdline).lower():
+                    cmdline_str = ' '.join(cmdline).lower() if cmdline else ''
+                    
+                    # Must be an actual anvil binary (not just a script with 'anvil' in path)
+                    is_anvil_binary = (
+                        proc_name == 'anvil' or 
+                        proc_exe.endswith('/anvil') or
+                        proc_exe.endswith('\\anvil') or
+                        proc_exe.endswith('\\anvil.exe') or
+                        (cmdline and cmdline[0] and cmdline[0].endswith('/anvil'))
+                    )
+                    
+                    if is_anvil_binary:
                         # Check if using the same port
-                        if str(self.anvil_port) in ' '.join(cmdline):
+                        if str(self.anvil_port) in cmdline_str:
                             print(f"   Cleaning up zombie Anvil process: PID {proc.info['pid']}")
                             proc.kill()
                             proc.wait(timeout=3)
@@ -661,9 +762,10 @@ class QuestEnvironment:
             
             try:
                 if system == 'Linux':
-                    # Linux: Use lsof to find process using port
+                    # Linux: Find anvil processes specifically (not all processes on port!)
+                    # Use pgrep to find processes with 'anvil' in name/cmdline
                     result = subprocess.run(
-                        ['lsof', '-ti', f':{self.anvil_port}'],
+                        ['pgrep', '-f', f'anvil.*--port.*{self.anvil_port}'],
                         capture_output=True,
                         text=True,
                         timeout=5
@@ -672,28 +774,41 @@ class QuestEnvironment:
                         pids = result.stdout.strip().split('\n')
                         for pid in pids:
                             try:
+                                pid_int = int(pid)
+                                # Don't kill ourselves
+                                if pid_int == current_pid:
+                                    continue
+                                # Verify it's really anvil by checking /proc/PID/cmdline
+                                try:
+                                    with open(f'/proc/{pid}/cmdline', 'r') as f:
+                                        cmdline = f.read()
+                                        if 'anvil' not in cmdline.lower():
+                                            continue  # Not anvil, skip
+                                except:
+                                    continue
                                 subprocess.run(['kill', '-9', pid], timeout=2)
-                                print(f"   Cleaning up process: PID {pid}")
-                            except:
+                                print(f"   Cleaning up Anvil process: PID {pid}")
+                            except (ValueError, Exception):
                                 pass
                         time.sleep(1)
                 elif system == 'Windows':
-                    # Windows: Use netstat to find process using port
+                    # Windows: Use tasklist to find anvil.exe processes
                     result = subprocess.run(
-                        ['netstat', '-ano'],
+                        ['tasklist', '/FI', 'IMAGENAME eq anvil.exe', '/FO', 'CSV'],
                         capture_output=True,
                         text=True,
                         timeout=5
                     )
                     if result.returncode == 0:
-                        for line in result.stdout.split('\n'):
-                            if f':{self.anvil_port}' in line and 'LISTENING' in line:
-                                parts = line.split()
-                                if parts:
-                                    pid = parts[-1]
+                        lines = result.stdout.strip().split('\n')
+                        for line in lines[1:]:  # Skip header
+                            if 'anvil' in line.lower():
+                                parts = line.strip('"').split('","')
+                                if len(parts) >= 2:
+                                    pid = parts[1].strip('"')
                                     try:
                                         subprocess.run(['taskkill', '/F', '/PID', pid], timeout=2)
-                                        print(f"   Cleaning up process: PID {pid}")
+                                        print(f"   Cleaning up Anvil process: PID {pid}")
                                     except:
                                         pass
                         time.sleep(1)
@@ -729,7 +844,12 @@ class QuestEnvironment:
                 headers={'Content-Type': 'application/json'}
             )
             
-            with urllib.request.urlopen(req, timeout=timeout) as response:
+            # Create opener that bypasses proxy (important for WSL with proxy settings)
+            # This ensures direct connection without going through system proxy
+            no_proxy_handler = urllib.request.ProxyHandler({})
+            opener = urllib.request.build_opener(no_proxy_handler)
+            
+            with opener.open(req, timeout=timeout) as response:
                 result = json.loads(response.read().decode('utf-8'))
                 if 'result' in result:
                     block_num = int(result['result'], 16)
@@ -750,49 +870,77 @@ class QuestEnvironment:
         Preheat common contract addresses
         
         Triggers Anvil to pull contract data from remote node by accessing contract code and balance
-        This ensures contracts are correctly detected in subsequent tests
+        This ensures contracts are correctly detected in subsequent tests and reduces
+        the number of fork requests during actual test execution.
         """
         from eth_utils import to_checksum_address
         
-        # BSC Mainnet common contract addresses
+        # BSC Mainnet common contract addresses - expanded list to reduce runtime fork requests
         contract_addresses = [
-            "0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c",  # WBNB
-            "0xcA143Ce32Fe78f1f7019d7d551a6402fC5350c73",  # PancakeFactory V2
-            "0x10ED43C718714eb63d5aA57B78B54704E256024E",  # PancakeRouter V2
+            # Core Infrastructure
+            ("0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c", "WBNB"),
+            ("0xcA143Ce32Fe78f1f7019d7d551a6402fC5350c73", "PancakeFactory V2"),
+            ("0x10ED43C718714eb63d5aA57B78B54704E256024E", "PancakeRouter V2"),
+            # Common Tokens
+            ("0x55d398326f99059fF775485246999027B3197955", "USDT"),
+            ("0xe9e7CEA3DedcA5984780Bafc599bD69ADd087D56", "BUSD"),
+            ("0x0E09FaBB73Bd3Ade0a17ECC321fD13a19e81cE82", "CAKE"),
+            # Common Liquidity Pairs (for swap operations)
+            ("0x16b9a82891338f9bA80E2D6970FddA79D1eb0daE", "USDT-BUSD LP"),
+            ("0x0eD7e52944161450477ee417DE9Cd3a859b14fD0", "CAKE-WBNB LP"),
+            ("0x58F876857a02D6762E0101bb5C46A8c1ED44Dc16", "BUSD-WBNB LP"),
+            ("0x7EFaEf62fDdCCa950418312c6C91Aef321375A00", "USDT-WBNB LP"),
         ]
         
         print(f"✓ Preheating contract addresses (Anvil pulling data from remote)...")
-        for addr in contract_addresses:
+        for addr_info in contract_addresses:
+            addr = addr_info[0] if isinstance(addr_info, tuple) else addr_info
+            name = addr_info[1] if isinstance(addr_info, tuple) and len(addr_info) > 1 else "Unknown"
+            
             try:
                 # Use checksum address
                 addr_checksum = to_checksum_address(addr)
-                print(f"  • {addr_checksum}")
+                print(f"  • {name}: {addr_checksum[:10]}...")
                 
                 # Access contract code (trigger Anvil pull)
                 code = self.w3.eth.get_code(addr_checksum)
-                print(f"    - get_code(): {len(code) if code else 0} bytes")
                 
+                # Get balance
                 balance = self.w3.eth.get_balance(addr_checksum)
-                print(f"    - get_balance(): {balance / 10**18:.6f} BNB")
                 
                 # Extra: Try reading storage to ensure data is pulled
                 try:
                     storage = self.w3.eth.get_storage_at(addr_checksum, 0)
-                    print(f"    - get_storage_at(0): {storage.hex()[:20]}...")
-                except Exception as se:
-                    print(f"    - get_storage_at(0): Error - {se}")
+                except Exception:
+                    pass  # Silently ignore storage read errors
                 
                 is_contract = code and len(code) > 2
                 if is_contract:
-                    print(f"    ✅ Confirmed as contract")
+                    print(f"    ✅ OK ({len(code)} bytes)")
                 else:
-                    print(f"    ⚠️  WARNING: No contract code found!")
-                    print(f"    This might indicate:")
-                    print(f"      - Address is not a contract on BSC testnet")
-                    print(f"      - Anvil fork connection issue")
-                    print(f"      - Need to check fork URL: {self.fork_url}")
+                    print(f"    ⚠️  No contract code found")
             except Exception as e:
-                print(f"  • {addr[:10]}... [❌ Error: {e}]")
+                print(f"  • {name}: ❌ Error - {str(e)[:50]}")
+        
+        # Preheat liquidity pool reserves by calling getReserves()
+        print(f"  Preheating LP reserves...")
+        lp_pairs = [
+            "0x16b9a82891338f9bA80E2D6970FddA79D1eb0daE",  # USDT-BUSD
+            "0x0eD7e52944161450477ee417DE9Cd3a859b14fD0",  # CAKE-WBNB
+            "0x58F876857a02D6762E0101bb5C46A8c1ED44Dc16",  # BUSD-WBNB
+            "0x7EFaEf62fDdCCa950418312c6C91Aef321375A00",  # USDT-WBNB
+        ]
+        for pair_addr in lp_pairs:
+            try:
+                pair_checksum = to_checksum_address(pair_addr)
+                # Call getReserves() - selector: 0x0902f1ac
+                result = self.w3.eth.call({
+                    'to': pair_checksum,
+                    'data': '0x0902f1ac'
+                })
+            except Exception:
+                pass  # Silently ignore - pair may not exist
+        
         print()
     
     def _set_erc20_balance_direct(self, token_address: str, holder_address: str, amount: int, balance_slot: int = 1) -> bool:
@@ -851,9 +999,11 @@ class QuestEnvironment:
                 return False
             
         except Exception as e:
-            print(f"    ⚠️  Error setting balance via storage: {e}")
-            import traceback
-            traceback.print_exc()
+            # Only print concise error message, not full traceback
+            error_msg = str(e)
+            if len(error_msg) > 100:
+                error_msg = error_msg[:100] + "..."
+            print(f"    ⚠️  Error setting balance via storage: {error_msg}")
             return False
     
     def _set_token_balances(self):
@@ -1991,7 +2141,7 @@ interface IERC721Receiver {
             self.w3.provider.make_request('anvil_stopImpersonatingAccount', [test_addr])
             
             # Store contract address for later use
-            self.erc721_test_nft_address = erc721_address
+            self.erc721_token_address = erc721_address
             
             # Verify deployment - check balance
             balance_selector = bytes.fromhex('70a08231')  # balanceOf(address)
@@ -2012,7 +2162,7 @@ interface IERC721Receiver {
             import traceback
             traceback.print_exc()
             # Set to None to indicate not deployed
-            self.erc721_test_nft_address = None
+            self.erc721_token_address = None
         
         print()
     

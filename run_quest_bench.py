@@ -13,6 +13,9 @@ Usage:
     
     # Specify number of questions
     python run_quest_bench.py --model gpt-4o --max-questions 10
+    
+    # Resume from a specific question index (0-based)
+    python run_quest_bench.py --model gpt-4o --type atomic --start-index 25
 
 All tests run in Anvil Fork Mode with complete environment isolation.
 """
@@ -199,14 +202,19 @@ class QuestBenchRunner:
     """Quest Bench Evaluation Runner"""
     
     def __init__(self, model_name: str, api_key: Optional[str] = None, 
-                 base_url: Optional[str] = None, fork_url: str = "https://bsc-testnet.drpc.org",
-                 run_index: int = 0, naive_mode: bool = False):
+                 base_url: Optional[str] = None, fork_url: str = "https://bsc-dataseed.binance.org",
+                 run_index: int = 0, naive_mode: bool = False, start_index: int = 0,
+                 failed_log_file = None, rerun_indices: Optional[set] = None):
         self.model_name = model_name
         self.api_key = api_key
         self.base_url = base_url
         self.fork_url = fork_url
         self.run_index = run_index
         self.naive_mode = naive_mode
+        self.start_index = start_index
+        self.failed_log_file = failed_log_file  # For real-time failed log writing
+        self.failed_count = 0
+        self.rerun_indices = rerun_indices  # Set of indices to rerun (None = run all)
         
         # Results storage
         self.results = {
@@ -225,6 +233,130 @@ class QuestBenchRunner:
             }
         }
     
+    def _write_failed_test_log(self, result: Dict[str, Any]):
+        """Write failed test result to log file in real-time with complete details"""
+        if not self.failed_log_file or result.get('validation_passed', False):
+            return
+        
+        self.failed_count += 1
+        f = self.failed_log_file
+        
+        f.write("\n" + "=" * 80 + "\n")
+        f.write(f"[{self.failed_count}] FAILED: {result['question_id']}\n")
+        f.write("=" * 80 + "\n\n")
+        
+        # Basic info
+        f.write(f"Type: {result.get('type', 'unknown')}\n")
+        f.write(f"Execution Success: {result.get('execution_success', False)}\n")
+        f.write(f"Validation Passed: {result.get('validation_passed', False)}\n")
+        score_pct = result.get('score', 0) / result.get('max_score', 100) * 100 if result.get('max_score', 100) > 0 else 0
+        f.write(f"Score: {result.get('score', 0)}/{result.get('max_score', 100)} ({score_pct:.0f}%)\n")
+        
+        # Execution rounds (for composite problems)
+        if result.get('execution_rounds'):
+            f.write(f"Execution Rounds: {result.get('execution_rounds')}\n")
+            f.write(f"Optimal Steps: {result.get('optimal_steps', 'N/A')}\n")
+        
+        if result.get('error'):
+            f.write(f"\n❌ Error:\n")
+            f.write("-" * 60 + "\n")
+            f.write(f"{result['error']}\n")
+            f.write("-" * 60 + "\n")
+        
+        # Generated parameters
+        if result.get('generated_params'):
+            f.write(f"\n📋 Generated Parameters:\n")
+            f.write("-" * 60 + "\n")
+            for key, value in result.get('generated_params', {}).items():
+                f.write(f"  {key}: {value}\n")
+        
+        # Natural language prompt
+        if result.get('natural_language_prompt'):
+            f.write(f"\n📝 Task Prompt:\n")
+            f.write("-" * 60 + "\n")
+            f.write(f"{result.get('natural_language_prompt')}\n")
+            f.write("-" * 60 + "\n")
+        
+        # Validation result details
+        validation_result = result.get('validation_result', {})
+        if validation_result:
+            f.write(f"\n🔍 Validation Details:\n")
+            f.write("-" * 60 + "\n")
+            f.write(f"  Passed: {validation_result.get('passed', False)}\n")
+            f.write(f"  Score: {validation_result.get('score', 0)}/{validation_result.get('max_score', 100)}\n")
+            if validation_result.get('message'):
+                f.write(f"  Message: {validation_result.get('message')}\n")
+            if validation_result.get('details'):
+                f.write(f"  Details:\n")
+                details = validation_result.get('details', {})
+                if isinstance(details, dict):
+                    for k, v in details.items():
+                        f.write(f"    - {k}: {v}\n")
+                else:
+                    f.write(f"    {details}\n")
+        
+        # Interaction history (for composite problems)
+        interaction_history = result.get('interaction_history', [])
+        if interaction_history:
+            f.write(f"\n📜 Interaction History ({len(interaction_history)} rounds):\n")
+            f.write("-" * 60 + "\n")
+            for i, round_data in enumerate(interaction_history, 1):
+                f.write(f"\n  --- Round {i} ---\n")
+                if isinstance(round_data, dict):
+                    # Show subtask info
+                    if round_data.get('subtask_action'):
+                        f.write(f"  Subtask: {round_data.get('subtask_action')}\n")
+                    if round_data.get('subtask_description'):
+                        f.write(f"  Description: {round_data.get('subtask_description')[:200]}...\n" 
+                                if len(round_data.get('subtask_description', '')) > 200 
+                                else f"  Description: {round_data.get('subtask_description')}\n")
+                    
+                    # Show execution result
+                    if round_data.get('execution_result'):
+                        exec_result = round_data.get('execution_result')
+                        if isinstance(exec_result, dict):
+                            f.write(f"  Execution Success: {exec_result.get('success', False)}\n")
+                            if exec_result.get('error'):
+                                f.write(f"  Execution Error: {exec_result.get('error')[:500]}...\n" 
+                                        if len(str(exec_result.get('error', ''))) > 500 
+                                        else f"  Execution Error: {exec_result.get('error')}\n")
+                        else:
+                            f.write(f"  Execution Result: {str(exec_result)[:300]}...\n")
+                    
+                    # Show LLM response (truncated)
+                    if round_data.get('llm_response'):
+                        response = round_data.get('llm_response', '')
+                        if len(response) > 500:
+                            f.write(f"  LLM Response ({len(response)} chars): {response[:500]}...\n")
+                        else:
+                            f.write(f"  LLM Response: {response}\n")
+        
+        # LLM response (for atomic problems)
+        llm_response = result.get('llm_response', '')
+        if llm_response and llm_response != "[TEST MODE] Code loaded from file" and not interaction_history:
+            f.write(f"\n🤖 LLM Response ({len(llm_response)} chars):\n")
+            f.write("-" * 60 + "\n")
+            # Show full response for failed tests (important for debugging)
+            if len(llm_response) > 5000:
+                f.write(f"{llm_response[:5000]}\n... (truncated, {len(llm_response) - 5000} more chars)\n")
+            else:
+                f.write(f"{llm_response}\n")
+            f.write("-" * 60 + "\n")
+        
+        # Extracted code
+        extracted_code = result.get('extracted_code', '')
+        if extracted_code:
+            f.write(f"\n💻 Extracted Code:\n")
+            f.write("-" * 60 + "\n")
+            if len(extracted_code) > 3000:
+                f.write(f"{extracted_code[:3000]}\n... (truncated)\n")
+            else:
+                f.write(f"{extracted_code}\n")
+            f.write("-" * 60 + "\n")
+        
+        f.write("\n")
+        f.flush()  # Ensure real-time writing
+    
     async def run_atomic_tests(self, question_ids: List[str], max_questions: Optional[int] = None):
         """Run atomic problem tests only"""
         
@@ -235,6 +367,8 @@ class QuestBenchRunner:
         print(f"Total Questions: {len(question_ids)}")
         if max_questions:
             print(f"Testing: {max_questions} questions (randomly sampled)")
+        if self.start_index > 0:
+            print(f"⏭️  Starting from index: {self.start_index}")
         print(f"Fork URL: {self.fork_url}")
         print("="*80 + "\n")
         
@@ -251,12 +385,25 @@ class QuestBenchRunner:
         
         try:
             for idx, question_id in enumerate(question_ids, 1):
+                # Skip questions before start_index (1-based display, 0-based internal)
+                if idx - 1 < self.start_index:
+                    print(f"⏭️  Skipping question {idx}/{len(question_ids)}: {question_id}")
+                    continue
+                
+                # Skip questions not in rerun_indices if rerun mode is active
+                if self.rerun_indices is not None and (idx - 1) not in self.rerun_indices:
+                    print(f"⏭️  Skipping question {idx}/{len(question_ids)}: {question_id} (not in rerun list)")
+                    continue
+                
                 print("\n" + "="*80)
                 print(f"📝 Question {idx}/{len(question_ids)}: {question_id}")
                 print("="*80)
                 
                 result = await self._run_single_question(question_id, env)
                 self.results['questions'].append(result)
+                
+                # Write failed test to log immediately
+                self._write_failed_test_log(result)
                 
                 # Update statistics
                 if result['execution_success'] and result['validation_passed']:
@@ -274,8 +421,33 @@ class QuestBenchRunner:
                 
                 # Reset environment for next test
                 if idx < len(question_ids):
-                    print(f"\n🔄 Resetting environment...")
-                    env.reset()
+                    # Check if we had a timeout error - if so, restart Anvil
+                    # Be more specific to avoid false positives from debug logs like "[DEBUG] Timeout: 60000ms"
+                    error_msg = (result.get('error', '') or '').lower()
+                    is_timeout_error = (
+                        'read timed out' in error_msg or
+                        'timed out. (read timeout' in error_msg or
+                        'connection timed out' in error_msg or
+                        'anvil is unresponsive' in error_msg or
+                        'anvil may need restart' in error_msg
+                    )
+                    if is_timeout_error:
+                        print(f"\n⚠️  Timeout detected, restarting Anvil...")
+                        if env.restart():
+                            print(f"✅ Anvil restarted successfully")
+                        else:
+                            print(f"❌ Anvil restart failed, trying reset...")
+                            env.reset()
+                    else:
+                        print(f"\n🔄 Resetting environment...")
+                        if not env.reset():
+                            print(f"⚠️  Reset failed, retrying once...")
+                            await asyncio.sleep(2)
+                            if not env.reset():
+                                print(f"⚠️  Reset failed twice, trying restart...")
+                                if not env.restart():
+                                    print(f"⚠️  Restart also failed, printing diagnostics...")
+                                    env.print_diagnostics()
         
         finally:
             print("\n🧹 Cleaning up environment...")
@@ -303,6 +475,10 @@ class QuestBenchRunner:
         print(f"  - Composite: {len(composite_ids)}")
         if max_questions:
             print(f"Max Questions: {max_questions} (randomly sampled)")
+        if self.start_index > 0:
+            print(f"⏭️  Starting from index: {self.start_index}")
+        if self.rerun_indices:
+            print(f"🔄 Rerun mode: Only running indices {sorted(self.rerun_indices)}")
         print(f"Fork URL: {self.fork_url}")
         print(f"Strategy: Atomic → Restart Anvil → Composite (10s intervals)")
         print("="*80 + "\n")
@@ -344,6 +520,17 @@ class QuestBenchRunner:
         try:
             for idx, question_id in enumerate(atomic_ids, 1):
                 global_idx += 1
+                
+                # Skip questions before start_index (global_idx is 1-based, start_index is 0-based)
+                if global_idx - 1 < self.start_index:
+                    print(f"⏭️  Skipping [Atomic {idx}/{len(atomic_ids)}] (Total {global_idx}/{total_questions}): {question_id}")
+                    continue
+                
+                # Skip questions not in rerun_indices if rerun mode is active
+                if self.rerun_indices is not None and (global_idx - 1) not in self.rerun_indices:
+                    print(f"⏭️  Skipping [Atomic {idx}/{len(atomic_ids)}] (Total {global_idx}/{total_questions}): {question_id} (not in rerun list)")
+                    continue
+                
                 print("\n" + "="*80)
                 print(f"📝 [Atomic {idx}/{len(atomic_ids)}] (Total {global_idx}/{total_questions}): {question_id}")
                 print("="*80)
@@ -351,6 +538,9 @@ class QuestBenchRunner:
                 result = await self._run_single_question(question_id, env)
                 result['type'] = 'atomic'
                 self.results['questions'].append(result)
+                
+                # Write failed test to log immediately
+                self._write_failed_test_log(result)
                 
                 # Update statistics
                 if result['execution_success'] and result['validation_passed']:
@@ -370,8 +560,33 @@ class QuestBenchRunner:
                 
                 # Reset environment for next atomic test
                 if idx < len(atomic_ids):
-                    print(f"\n🔄 Resetting environment...")
-                    env.reset()
+                    # Check if we had a timeout error - if so, skip reset and directly restart
+                    # Be more specific to avoid false positives from debug logs like "[DEBUG] Timeout: 60000ms"
+                    error_msg = (result.get('error', '') or '').lower()
+                    is_timeout_error = (
+                        'read timed out' in error_msg or
+                        'timed out. (read timeout' in error_msg or
+                        'connection timed out' in error_msg or
+                        'anvil is unresponsive' in error_msg or
+                        'anvil may need restart' in error_msg
+                    )
+                    if is_timeout_error:
+                        print(f"\n⚠️  Timeout detected - Anvil is likely frozen, forcing restart...")
+                        # Don't try reset (it will hang), go directly to restart
+                        if env.restart():
+                            print(f"✅ Anvil restarted successfully")
+                        else:
+                            print(f"❌ Anvil restart failed!")
+                            env.print_diagnostics()
+                    else:
+                        print(f"\n🔄 Resetting environment...")
+                        if not env.reset():
+                            # reset() now does quick health check first
+                            # If it returns False quickly, Anvil is likely frozen
+                            print(f"⚠️  Reset failed (Anvil may be frozen), trying restart...")
+                            if not env.restart():
+                                print(f"⚠️  Restart also failed, printing diagnostics...")
+                                env.print_diagnostics()
             
             # Print atomic phase summary
             print("\n" + "="*80)
@@ -427,6 +642,17 @@ class QuestBenchRunner:
                 
                 for idx, question_id in enumerate(composite_ids, 1):
                     global_idx += 1
+                    
+                    # Skip questions before start_index (global_idx is 1-based, start_index is 0-based)
+                    if global_idx - 1 < self.start_index:
+                        print(f"⏭️  Skipping [Composite {idx}/{len(composite_ids)}] (Total {global_idx}/{total_questions}): {question_id}")
+                        continue
+                    
+                    # Skip questions not in rerun_indices if rerun mode is active
+                    if self.rerun_indices is not None and (global_idx - 1) not in self.rerun_indices:
+                        print(f"⏭️  Skipping [Composite {idx}/{len(composite_ids)}] (Total {global_idx}/{total_questions}): {question_id} (not in rerun list)")
+                        continue
+                    
                     print("\n" + "="*80)
                     print(f"📝 [Composite {idx}/{len(composite_ids)}] (Total {global_idx}/{total_questions}): {question_id}")
                     print("="*80)
@@ -434,6 +660,9 @@ class QuestBenchRunner:
                     result = await self._run_single_question(question_id, env, is_composite=True)
                     result['type'] = 'composite'
                     self.results['questions'].append(result)
+                    
+                    # Write failed test to log immediately
+                    self._write_failed_test_log(result)
                     
                     # Update statistics
                     if result['execution_success'] and result['validation_passed']:
@@ -453,8 +682,33 @@ class QuestBenchRunner:
                     
                     # Reset environment for next composite test with longer delay
                     if idx < len(composite_ids):
-                        print(f"\n🔄 Resetting environment...")
-                        env.reset()
+                        # Check if we had a timeout error - if so, skip reset and directly restart
+                        # Be more specific to avoid false positives from debug logs like "[DEBUG] Timeout: 60000ms"
+                        error_msg = (result.get('error', '') or '').lower()
+                        is_timeout_error = (
+                            'read timed out' in error_msg or
+                            'timed out. (read timeout' in error_msg or
+                            'connection timed out' in error_msg or
+                            'anvil is unresponsive' in error_msg or
+                            'anvil may need restart' in error_msg
+                        )
+                        if is_timeout_error:
+                            print(f"\n⚠️  Timeout detected - Anvil is likely frozen, forcing restart...")
+                            # Don't try reset (it will hang), go directly to restart
+                            if env.restart():
+                                print(f"✅ Anvil restarted successfully")
+                            else:
+                                print(f"❌ Anvil restart failed!")
+                                env.print_diagnostics()
+                        else:
+                            print(f"\n🔄 Resetting environment...")
+                            if not env.reset():
+                                # reset() now does quick health check first
+                                # If it returns False quickly, Anvil is likely frozen
+                                print(f"⚠️  Reset failed (Anvil may be frozen), trying restart...")
+                                if not env.restart():
+                                    print(f"⚠️  Restart also failed, printing diagnostics...")
+                                    env.print_diagnostics()
                         print(f"💤 Sleeping {composite_sleep}s before next composite test...")
                         await asyncio.sleep(composite_sleep)
                 
@@ -567,7 +821,14 @@ class QuestBenchRunner:
                 'max_score': validation_result.get('max_score', 100),
                 'generated_params': result.get('generated_params', {}),
                 'llm_response': result.get('llm_response', ''),
-                'error': result.get('error')
+                'error': result.get('error'),
+                # Additional details for fail log
+                'validation_result': validation_result,
+                'interaction_history': result.get('interaction_history', []),
+                'execution_rounds': result.get('execution_rounds', 0),
+                'optimal_steps': result.get('optimal_steps', 0),
+                'extracted_code': result.get('extracted_code', ''),
+                'natural_language_prompt': result.get('natural_language_prompt', '')
             }
         except Exception as e:
             print(f"❌ Error running question {question_id}: {e}")
@@ -606,7 +867,6 @@ class QuestBenchRunner:
         print(f"Model: {self.model_name}")
         print(f"Total Questions: {len(self.results['questions'])}")
 
-
         # Show breakdown by type if available
         if 'atomic_success' in self.results:
             atomic_total = self.results.get('atomic_success', 0) + self.results.get('atomic_failure', 0)
@@ -623,7 +883,7 @@ class QuestBenchRunner:
             success_rate = self.results['success_count'] / len(self.results['questions']) * 100
             print(f"📈 Success Rate: {success_rate:.1f}%")
         
-        # Detailed scores by question (grouped by type if available)
+        # Detailed scores by question (sorted alphabetically)
         print(f"\n📋 Detailed Scores:")
         print("-"*80)
         
@@ -631,29 +891,36 @@ class QuestBenchRunner:
         has_types = any(r.get('type') for r in self.results['questions'])
         
         if has_types:
-            # Print atomic results first
-            atomic_results = [r for r in self.results['questions'] if r.get('type') == 'atomic']
+            # Print atomic results first (sorted by question_id)
+            atomic_results = sorted(
+                [r for r in self.results['questions'] if r.get('type') == 'atomic'],
+                key=lambda x: x['question_id']
+            )
             if atomic_results:
                 print("--- ATOMIC PROBLEMS ---")
                 for result in atomic_results:
                     status = "✅" if result['validation_passed'] else "❌"
                     score_pct = result['score'] / result['max_score'] * 100 if result['max_score'] > 0 else 0
-                    print(f"{status} {result['question_id']:<40} {result['score']:>3}/{result['max_score']:<3} ({score_pct:.0f}%)")
+                    print(f"{status} {result['question_id']:<45} {result['score']:>3}/{result['max_score']:<3} ({score_pct:.0f}%)")
             
-            # Print composite results
-            composite_results = [r for r in self.results['questions'] if r.get('type') == 'composite']
+            # Print composite results (sorted by question_id)
+            composite_results = sorted(
+                [r for r in self.results['questions'] if r.get('type') == 'composite'],
+                key=lambda x: x['question_id']
+            )
             if composite_results:
                 print("\n--- COMPOSITE PROBLEMS ---")
                 for result in composite_results:
                     status = "✅" if result['validation_passed'] else "❌"
                     score_pct = result['score'] / result['max_score'] * 100 if result['max_score'] > 0 else 0
-                    print(f"{status} {result['question_id']:<40} {result['score']:>3}/{result['max_score']:<3} ({score_pct:.0f}%)")
+                    print(f"{status} {result['question_id']:<45} {result['score']:>3}/{result['max_score']:<3} ({score_pct:.0f}%)")
         else:
-            # No type info, print all together
-            for result in self.results['questions']:
+            # No type info, print all together (sorted by question_id)
+            sorted_results = sorted(self.results['questions'], key=lambda x: x['question_id'])
+            for result in sorted_results:
                 status = "✅" if result['validation_passed'] else "❌"
                 score_pct = result['score'] / result['max_score'] * 100 if result['max_score'] > 0 else 0
-                print(f"{status} {result['question_id']:<40} {result['score']:>3}/{result['max_score']:<3} ({score_pct:.0f}%)")
+                print(f"{status} {result['question_id']:<45} {result['score']:>3}/{result['max_score']:<3} ({score_pct:.0f}%)")
         
         print("="*80)
 
@@ -681,6 +948,9 @@ Examples:
   
   # Use custom API base URL (e.g., Alibaba Cloud)
   python run_quest_bench.py --model qwen-turbo --base-url https://dashscope.aliyuncs.com/compatible-mode/v1
+  
+  # Resume from question index 25 (0-based, skips first 25 questions)
+  python run_quest_bench.py --model gpt-4o --type atomic --start-index 25
         """
     )
     
@@ -734,31 +1004,56 @@ Examples:
     parser.add_argument(
         '--fork-url',
         type=str,
-        default='https://bsc-testnet.drpc.org',
-        help='BSC RPC URL to fork with Anvil (default: DRPC BSC Testnet)'
+        default='https://bsc-dataseed.binance.org',
+        help='BSC RPC URL to fork with Anvil (default: BSC Mainnet public RPC)'
     )
     parser.add_argument(
         '--naive-mode',
         action='store_true',
         help='Naive mode: Include detailed implementation guidance in prompts (easier, default: False)'
     )
+    parser.add_argument(
+        '--start-index',
+        type=int,
+        default=0,
+        help='Start from question index (0-based, useful for resuming after failures)'
+    )
+    parser.add_argument(
+        '--rerun-indices',
+        type=str,
+        default=None,
+        help='Comma-separated list of question indices to rerun (0-based). E.g., "5,6,13,15,20,27,29,30,43" to only run these specific questions.'
+    )
     
     args = parser.parse_args()
+
+    # Parse rerun_indices if provided
+    rerun_indices_set = None
+    if args.rerun_indices:
+        try:
+            rerun_indices_set = set(int(x.strip()) for x in args.rerun_indices.split(','))
+            print(f"📋 Rerun mode: Will only run questions at indices: {sorted(rerun_indices_set)}")
+        except ValueError as e:
+            print(f"❌ Invalid --rerun-indices format: {e}")
+            print("   Expected comma-separated integers, e.g., '5,6,13,15'")
+            sys.exit(1)
     
     # Setup log directory
     log_dir = Path("log")
     log_dir.mkdir(parents=True, exist_ok=True)
     
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    safe_model_name = args.model.replace('/', '_')
+    # Log filename format: {model_name}_{type}_{timestamp}_{full/fail}.log
+    timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
+    safe_model_name = args.model.replace('/', '_').replace('\\', '_')
+    problem_type = args.type  # atomic, composite, or all
     
-    # Create log file paths
-    full_log_filename = f"quest_bench_{safe_model_name}_{args.run_index}_{timestamp}.log"
-    failed_log_filename = f"quest_bench_{safe_model_name}_{args.run_index}_{timestamp}_failed.log"
+    # Create log file paths with new naming convention
+    full_log_filename = f"{safe_model_name}_{problem_type}_{timestamp}_full.log"
+    failed_log_filename = f"{safe_model_name}_{problem_type}_{timestamp}_fail.log"
     full_log_path = log_dir / full_log_filename
     failed_log_path = log_dir / failed_log_filename
     
-    # Setup Tee output for full console log
+    # Setup Tee output for full console log (real-time writing)
     full_log_file = open(full_log_path, 'w', encoding='utf-8')
     original_stdout = sys.stdout
     original_stderr = sys.stderr
@@ -769,16 +1064,16 @@ Examples:
     output_file = None
     failed_count = 0
     
-    # Initialize failed log file with header
-    with open(failed_log_path, 'w', encoding='utf-8') as f:
-        f.write("=" * 80 + "\n")
-        f.write("BSC Quest Bench - Failed Tests Log\n")
-        f.write("=" * 80 + "\n")
-        f.write(f"Start Time: {datetime.now().isoformat()}\n")
-        f.write(f"Model: {args.model}\n")
-        f.write(f"Type: {args.type}\n")
-        f.write(f"Run Index: {args.run_index}\n")
-        f.write("=" * 80 + "\n\n")
+    # Open failed log file for real-time writing (keep it open throughout execution)
+    failed_log_file = open(failed_log_path, 'w', encoding='utf-8')
+    failed_log_file.write("=" * 80 + "\n")
+    failed_log_file.write("BSC Quest Bench - Failed Tests Log\n")
+    failed_log_file.write("=" * 80 + "\n")
+    failed_log_file.write(f"Start Time: {datetime.now().isoformat()}\n")
+    failed_log_file.write(f"Model: {args.model}\n")
+    failed_log_file.write(f"Type: {args.type}\n")
+    failed_log_file.write("=" * 80 + "\n\n")
+    failed_log_file.flush()  # Ensure header is written immediately
     
     try:
         print("\n" + "="*80)
@@ -792,14 +1087,17 @@ Examples:
         print(f"📝 Failed tests log: {failed_log_path}")
         print("="*80 + "\n")
         
-        # Create runner
+        # Create runner with failed log file for real-time writing
         runner = QuestBenchRunner(
             model_name=args.model,
             api_key=args.api_key,
             base_url=args.base_url,
             fork_url=args.fork_url,
             run_index=args.run_index,
-            naive_mode=args.naive_mode
+            naive_mode=args.naive_mode,
+            start_index=args.start_index,
+            failed_log_file=failed_log_file,
+            rerun_indices=rerun_indices_set
         )
         
         # Determine questions to test
@@ -827,34 +1125,17 @@ Examples:
             print("❌ Unknown problem type")
             sys.exit(1)
         
-        # Write failed tests to separate log file
-        for question_result in results.get('questions', []):
-            if not question_result.get('validation_passed', False):
-                failed_count += 1
-                with open(failed_log_path, 'a', encoding='utf-8') as f:
-                    f.write(f"[{failed_count}] {question_result['question_id']}\n")
-                    f.write("-" * 60 + "\n")
-                    f.write(f"  Type: {question_result.get('type', 'unknown')}\n")
-                    f.write(f"  Execution Success: {question_result.get('execution_success', False)}\n")
-                    f.write(f"  Validation Passed: {question_result.get('validation_passed', False)}\n")
-                    f.write(f"  Score: {question_result.get('score', 0)}/{question_result.get('max_score', 100)}\n")
-                    if question_result.get('error'):
-                        f.write(f"  Error: {question_result['error']}\n")
-                    f.write("\n")
-        
-        # Finalize failed log
+        # Finalize failed log (already written in real-time by runner)
+        failed_count = runner.failed_count
         if failed_count > 0:
-            with open(failed_log_path, 'a', encoding='utf-8') as f:
-                f.write("=" * 80 + "\n")
-                f.write(f"End Time: {datetime.now().isoformat()}\n")
-                f.write(f"Total Failed: {failed_count}\n")
-                f.write("=" * 80 + "\n")
+            failed_log_file.write("=" * 80 + "\n")
+            failed_log_file.write(f"End Time: {datetime.now().isoformat()}\n")
+            failed_log_file.write(f"Total Failed: {failed_count}\n")
+            failed_log_file.write("=" * 80 + "\n")
+            failed_log_file.flush()
             print(f"\n❌ {failed_count} test(s) failed. See: {failed_log_path}")
         else:
-            # All tests passed, remove the empty failed log file
-            if failed_log_path.exists():
-                failed_log_path.unlink()
-            print("\n✅ All tests passed! No failed tests log file created.")
+            print("\n✅ All tests passed!")
         
         # Save results
         output_file = runner.save_results(args.output_dir)
@@ -873,6 +1154,13 @@ Examples:
         
         if full_log_file and not full_log_file.closed:
             full_log_file.close()
+        
+        if failed_log_file and not failed_log_file.closed:
+            failed_log_file.close()
+        
+        # Remove empty failed log file if no failures
+        if failed_count == 0 and failed_log_path.exists():
+            failed_log_path.unlink()
         
         # Final summary (console only)
         print(f"\n{'='*80}")

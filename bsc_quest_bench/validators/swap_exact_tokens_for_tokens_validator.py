@@ -19,7 +19,8 @@ class SwapExactTokensForTokensValidator:
         amount_in: float,
         token_in_decimals: int = 18,
         token_out_decimals: int = 18,
-        slippage: float = 5.0
+        slippage: float = 5.0,
+        **kwargs  # Accept extra params
     ):
         """
         Initialize validator
@@ -33,6 +34,13 @@ class SwapExactTokensForTokensValidator:
             token_out_decimals: Output token decimals (default: 18)
             slippage: Slippage tolerance in percent (default: 5.0)
         """
+        if not router_address:
+            raise ValueError("router_address is required but was None or empty")
+        if not token_in_address:
+            raise ValueError("token_in_address is required but was None or empty")
+        if not token_out_address:
+            raise ValueError("token_out_address is required but was None or empty")
+        
         self.router_address = router_address.lower()
         self.token_in_address = token_in_address.lower()
         self.token_out_address = token_out_address.lower()

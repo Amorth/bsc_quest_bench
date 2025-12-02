@@ -14,7 +14,7 @@ from typing import Dict, Any, List
 class StakeSingleTokenValidator:
     """Validator for staking single token to CAKE Pool"""
     
-    def __init__(self, stake_amount: float, token_address: str, pool_address: str, user_address: str):
+    def __init__(self, stake_amount: float, token_address: str, pool_address: str, user_address: str, **kwargs):
         """
         Initialize validator with parameters
         
@@ -24,6 +24,13 @@ class StakeSingleTokenValidator:
             pool_address: CAKE Pool contract address
             user_address: User's wallet address
         """
+        if not token_address:
+            raise ValueError("token_address is required but was None or empty")
+        if not pool_address:
+            raise ValueError("pool_address is required but was None or empty")
+        if not user_address:
+            raise ValueError("user_address is required but was None or empty")
+        
         self.stake_amount = stake_amount
         self.token_address = token_address.lower()
         self.pool_address = pool_address.lower()

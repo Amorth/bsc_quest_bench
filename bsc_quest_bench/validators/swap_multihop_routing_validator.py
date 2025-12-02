@@ -26,7 +26,8 @@ class SwapMultihopRoutingValidator:
         amount_in: float,
         token_start_decimals: int = 18,
         token_end_decimals: int = 18,
-        slippage: float = 5.0
+        slippage: float = 5.0,
+        **kwargs  # Accept extra params
     ):
         """
         Initialize validator
@@ -40,6 +41,13 @@ class SwapMultihopRoutingValidator:
             token_end_decimals: Ending token decimals
             slippage: Slippage tolerance percentage
         """
+        if not router_address:
+            raise ValueError("router_address is required but was None or empty")
+        if not token_start_address:
+            raise ValueError("token_start_address is required but was None or empty")
+        if not token_end_address:
+            raise ValueError("token_end_address is required but was None or empty")
+        
         self.router_address = router_address.lower()
         self.token_start_address = token_start_address.lower()
         self.token_end_address = token_end_address.lower()

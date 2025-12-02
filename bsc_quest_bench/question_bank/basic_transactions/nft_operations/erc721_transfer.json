@@ -41,7 +41,7 @@
       "description": "ERC721 NFT contract address",
       "generation": {
         "method": "from_env",
-        "env_key": "erc721_test_nft_address",
+        "env_key": "erc721_token_address",
         "comment": "Use dynamically deployed ERC721 test NFT contract from environment"
       }
     },
