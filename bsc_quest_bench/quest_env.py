@@ -15,10 +15,9 @@ from typing import Optional, Dict, Any
 from web3 import Web3
 from eth_account import Account
 
-
 class QuestEnvironment:
     """Quest Environment Management Class"""
-    
+
     def __init__(
         self,
         fork_url: str = None,
@@ -631,20 +630,47 @@ class QuestEnvironment:
         anvil_env['no_proxy'] = '*'
         anvil_env['NO_PROXY'] = '*'
         
-        # Capture stderr for diagnostics
+        # Use DEVNULL for stdout and capture stderr in a non-blocking way
+        # This prevents buffer deadlock that can occur when PIPE buffers fill up
+        import threading
+        import queue
+        
         self.anvil_process = subprocess.Popen(
             anvil_cmd_list,
-            stdout=subprocess.PIPE,
+            stdout=subprocess.DEVNULL,  # Don't capture stdout to avoid buffer issues
             stderr=subprocess.PIPE,
             env=anvil_env  # Use proxy-free environment
         )
         
-        # 6. Wait for start (increase timeout)
-        max_wait = 30  # Increased from 15s to 30s
+        # Use a thread to read stderr asynchronously to prevent buffer deadlock
+        stderr_output = []
+        stderr_queue = queue.Queue()
+        
+        def read_stderr():
+            try:
+                for line in iter(self.anvil_process.stderr.readline, b''):
+                    stderr_queue.put(line.decode('utf-8', errors='ignore').strip())
+            except:
+                pass
+        
+        stderr_thread = threading.Thread(target=read_stderr, daemon=True)
+        stderr_thread.start()
+        
+        # 6. Wait for start (increase timeout for remote servers with higher latency)
+        max_wait = 60  # Increased from 30s to 60s for remote server support
         print(f"   Waiting for Anvil to start (max {max_wait}s)...")
         
         for i in range(max_wait):
             time.sleep(1)
+            
+            # Drain stderr queue to prevent buffer buildup
+            while not stderr_queue.empty():
+                try:
+                    line = stderr_queue.get_nowait()
+                    if line:
+                        stderr_output.append(line)
+                except queue.Empty:
+                    break
             
             # Check if port is open
             if self._is_port_in_use(self.anvil_port):
@@ -654,12 +680,16 @@ class QuestEnvironment:
             # Check if process exited unexpectedly
             if self.anvil_process.poll() is not None:
                 returncode = self.anvil_process.returncode
-                # Try to read error output
-                try:
-                    stdout, stderr = self.anvil_process.communicate(timeout=1)
-                    error_msg = stderr.decode('utf-8', errors='ignore') if stderr else "No error message"
-                except:
-                    error_msg = "Cannot read error message"
+                # Collect remaining stderr
+                time.sleep(0.5)
+                while not stderr_queue.empty():
+                    try:
+                        line = stderr_queue.get_nowait()
+                        if line:
+                            stderr_output.append(line)
+                    except queue.Empty:
+                        break
+                error_msg = '\n'.join(stderr_output[-20:]) if stderr_output else "No error message"
                 
                 self._cleanup_anvil()
                 raise RuntimeError(
@@ -671,11 +701,21 @@ class QuestEnvironment:
                     f"  - RPC node rate limited or down"
                 )
             
-            # Show progress every 5 seconds
-            if (i + 1) % 5 == 0:
+            # Show progress every 10 seconds
+            if (i + 1) % 10 == 0:
                 print(f"   Waiting... ({i+1}s)")
         
-        # Timeout handling
+        # Timeout handling - collect stderr for diagnostics
+        while not stderr_queue.empty():
+            try:
+                line = stderr_queue.get_nowait()
+                if line:
+                    stderr_output.append(line)
+            except queue.Empty:
+                break
+        
+        stderr_log = '\n'.join(stderr_output[-30:]) if stderr_output else "No output captured"
+        
         self._cleanup_anvil()
         raise RuntimeError(
             f"Anvil start timed out ({max_wait}s)\n"
@@ -683,6 +723,8 @@ class QuestEnvironment:
             f"  1. Slow network connection - Fork URL: {self.fork_url}\n"
             f"  2. RPC node slow response or unavailable\n"
             f"  3. Insufficient system resources\n"
+            f"\n"
+            f"Anvil stderr output (last 30 lines):\n{stderr_log}\n"
             f"\n"
             f"Suggestions:\n"
             f"  - Check network connection\n"
