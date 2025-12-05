@@ -400,6 +400,7 @@ class QuestBenchRunner:
                 print("="*80)
                 
                 result = await self._run_single_question(question_id, env)
+                result['type'] = 'atomic'  # Mark as atomic problem
                 self.results['questions'].append(result)
                 
                 # Write failed test to log immediately
@@ -500,8 +501,12 @@ class QuestBenchRunner:
         # Initialize extended results tracking
         self.results['atomic_success'] = 0
         self.results['atomic_failure'] = 0
+        self.results['atomic_score'] = 0
+        self.results['atomic_max_score'] = 0
         self.results['composite_success'] = 0
         self.results['composite_failure'] = 0
+        self.results['composite_score'] = 0
+        self.results['composite_max_score'] = 0
         
         # ========================================
         # Phase 1: Run Atomic Problems
@@ -552,6 +557,8 @@ class QuestBenchRunner:
                 
                 self.results['scores'].append(result['score'])
                 self.results['total_score'] += result['score']
+                self.results['atomic_score'] += result['score']
+                self.results['atomic_max_score'] += result['max_score']
                 
                 # Print summary
                 status = "✅" if result['validation_passed'] else "❌"
@@ -674,6 +681,8 @@ class QuestBenchRunner:
                     
                     self.results['scores'].append(result['score'])
                     self.results['total_score'] += result['score']
+                    self.results['composite_score'] += result['score']
+                    self.results['composite_max_score'] += result['max_score']
                     
                     # Print summary
                     status = "✅" if result['validation_passed'] else "❌"
@@ -877,6 +886,36 @@ class QuestBenchRunner:
         print(f"\n✅ Successful: {self.results['success_count']}")
         print(f"❌ Failed: {self.results['failure_count']}")
         print(f"\n💯 Total Score: {self.results['total_score']:.1f}")
+        
+        # Calculate and show breakdown scores by type from question results
+        # This works even if atomic_score/composite_score weren't tracked during run
+        # Also handles legacy data without 'type' field by inferring from question_id prefix
+        def get_question_type(q):
+            """Get question type from 'type' field or infer from question_id prefix"""
+            if q.get('type'):
+                return q['type']
+            # Infer from question_id prefix for legacy data
+            qid = q.get('question_id', '')
+            return 'composite' if qid.startswith('composite_') else 'atomic'
+        
+        atomic_questions = [q for q in self.results['questions'] if get_question_type(q) == 'atomic']
+        composite_questions = [q for q in self.results['questions'] if get_question_type(q) == 'composite']
+        
+        if atomic_questions or composite_questions:
+            if atomic_questions:
+                atomic_score = sum(q.get('score', 0) for q in atomic_questions)
+                atomic_max = sum(q.get('max_score', 100) for q in atomic_questions)
+                if atomic_max > 0:
+                    atomic_pct = atomic_score / atomic_max * 100
+                    print(f"   📦 Atomic Score: {atomic_score:.1f}/{atomic_max:.0f} ({atomic_pct:.1f}%)")
+            
+            if composite_questions:
+                composite_score = sum(q.get('score', 0) for q in composite_questions)
+                composite_max = sum(q.get('max_score', 100) for q in composite_questions)
+                if composite_max > 0:
+                    composite_pct = composite_score / composite_max * 100
+                    print(f"   🔗 Composite Score: {composite_score:.1f}/{composite_max:.0f} ({composite_pct:.1f}%)")
+        
         print(f"📊 Average Score: {self.results['average_score']:.1f}")
 
         if self.results['scores']:
