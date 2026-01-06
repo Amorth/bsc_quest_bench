@@ -9,7 +9,7 @@ A comprehensive benchmark for evaluating LLM ability to generate accurate blockc
 BSC Quest Bench tests LLM competency in understanding blockchain concepts and generating correct transaction code. The system evaluates performance across:
 
 - **Atomic Problems (62 problems)**: Single operations evaluated in one round
-- **Composite Problems (46 problems)**: Multi-step workflows with planning and execution phases
+- **Composite Problems (45 problems)**: Multi-step workflows with planning and execution phases
 
 ### Quick Start
 
@@ -45,8 +45,8 @@ python run_quest_bench.py --model gpt-4o --naive-mode
 | Type | Count | Description |
 |------|-------|-------------|
 | **Atomic** | 62 | Single blockchain operations |
-| **Composite** | 46 | Multi-step workflows |
-| **Total** | 108 | Comprehensive coverage |
+| **Composite** | 45 | Multi-step workflows |
+| **Total** | 107 | Comprehensive coverage |
 
 ### Technical Features
 - **Specialized Validators**: 62+ validators for precise scoring
@@ -214,7 +214,7 @@ Single blockchain operations evaluated in one round.
 
 ---
 
-### Composite Problems (46 total)
+### Composite Problems (45 total)
 
 Multi-step workflows with planning and execution phases.
 
@@ -313,7 +313,7 @@ Final Score = Base Score × min(1.0, optimal_steps / actual_steps)
 | `composite_nft_transfer_with_payment` | 3 | Transfer NFT with BNB payment |
 | `composite_nft_bundle_sale` | 5 | Bundle multiple NFT operations |
 
-**Optimized Workflows (2 problems)**
+**Optimized Workflows (1 problem)**
 | Problem ID | Optimal Steps | Description |
 |------------|---------------|-------------|
 | `composite_optimized_swap_with_query` | 5 | Query-optimized swap |
@@ -493,9 +493,9 @@ log/{model}_{type}_{timestamp}_fail.log                  # Failed tests only
 📊 FINAL RESULTS
 ================================================================================
 Model: gpt-4o
-Total Questions: 108
+Total Questions: 107
   - Atomic: 62 (✅ 58 / ❌ 4)
-  - Composite: 46 (✅ 40 / ❌ 6)
+  - Composite: 45 (✅ 40 / ❌ 5)
 
 ✅ Successful: 98
 ❌ Failed: 10
@@ -509,32 +509,33 @@ Total Questions: 108
 ## Project Structure
 
 ```
-bsc_quest_bench/
-├── quest_controller.py           # LLM interaction controller
-├── quest_env.py                  # Anvil environment manager
-├── quest_executor.py             # Transaction executor
-├── parameter_generator.py        # Random parameter generation
-├── validators/                   # Specialized validators (62+ files)
-│   ├── __init__.py
-│   ├── composite_validator.py    # Multi-turn composite validator
-│   ├── bnb_transfer_validator.py
-│   └── ...
-├── question_bank/                # Problem definitions
-│   ├── basic_transactions/       # 40 atomic problems
-│   ├── defi_operations/          # 19 atomic problems
-│   ├── advanced_features/        # 3 atomic problems
-│   └── composite_problems/       # 46 composite problems
-├── skill_runner/                 # TypeScript executor
-│   ├── runBscSkill.ts
-│   └── package.json
-├── contracts/                    # Test contracts
-│   ├── SimpleStaking.sol
-│   ├── SimpleLPStaking.sol
-│   └── ...
-├── run_quest_bench.py            # Main benchmark runner
-├── system_config.json            # System configuration
-├── requirements.txt              # Python dependencies
-└── README.md                     # This file
+.
+├── run_quest_bench.py              # Main benchmark runner
+├── requirements.txt                # Python dependencies
+├── README.md                       # This file
+└── bsc_quest_bench/
+    ├── quest_controller.py         # LLM interaction controller
+    ├── quest_env.py                # Anvil environment manager
+    ├── quest_executor.py           # Transaction executor
+    ├── parameter_generator.py      # Random parameter generation
+    ├── system_config.json          # System configuration
+    ├── validators/                 # Specialized validators (62+ files)
+    │   ├── __init__.py
+    │   ├── composite_validator.py  # Multi-turn composite validator
+    │   ├── bnb_transfer_validator.py
+    │   └── ...
+    ├── question_bank/              # Problem definitions
+    │   ├── basic_transactions/     # 40 atomic problems
+    │   ├── defi_operations/        # 19 atomic problems
+    │   ├── advanced_features/      # 3 atomic problems
+    │   └── composite_problems/     # 45 composite problems
+    ├── skill_runner/               # TypeScript executor
+    │   ├── runBscSkill.ts
+    │   └── package.json
+    └── contracts/                  # Test contracts
+        ├── SimpleStaking.sol
+        ├── SimpleLPStaking.sol
+        └── ...
 ```
 
 ## Environment & Test Contracts
@@ -641,8 +642,8 @@ python run_quest_bench.py --model gpt-4o --type composite --rerun-indices "5,6,1
 | Initial Setup | ~27 seconds |
 | Per-Test Reset | ~0.002 seconds |
 | 62 Atomic Tests | ~5-10 minutes |
-| 46 Composite Tests | ~30-60 minutes |
-| Full Benchmark (108) | ~45-90 minutes |
+| 45 Composite Tests | ~30-60 minutes |
+| Full Benchmark (107) | ~45-90 minutes |
 
 ## License
 
