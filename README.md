@@ -441,6 +441,8 @@ python run_quest_bench.py \
 | `--base-url` | string | ❌ | Custom API base URL |
 | `--fork-url` | string | ❌ | BSC RPC URL to fork (default: BSC Mainnet) |
 | `--naive-mode` | flag | ❌ | Include detailed implementation guidance |
+| `--nl-difficulty` | string | ❌ | NL template difficulty: `random`, `precise`, `moderate`, or `vague` (default: random) |
+| `--library` | string | ❌ | JavaScript library: `ethers` or `viem` (default: ethers) |
 
 ## Scoring System
 
@@ -649,60 +651,60 @@ python run_quest_bench.py --model gpt-4o --type composite --rerun-indices "5,6,1
 
 ### Feature 2: Tightened Validation Thresholds (2026-03-13)
 
-根据审稿人反馈，我们收紧了验证器的容差阈值以提高评估精度：
+Based on reviewer feedback, we tightened validator tolerance thresholds to improve evaluation precision:
 
-- **Transfer 类型**: 从 1-2% 收紧到 **0.1%**
-- **Approval 类型**: 从 1% 收紧到 **0** (精确匹配)
-- **Swap 类型**: 保持不变 (AMM 特性需要容差)
+- **Transfer validators**: Tightened from 1-2% to **0.1%**
+- **Approval validators**: Tightened from 1% to **0** (exact match)
+- **Swap validators**: Unchanged (AMM characteristics require tolerance)
 
-详见: [doc/FEATURE_UPDATES.md](doc/FEATURE_UPDATES.md)
+See: [doc/FEATURE_UPDATES.md](doc/FEATURE_UPDATES.md)
 
 ### Feature 3: NL Difficulty Control (2026-03-13)
 
-实现了基于 NL 难度的模板选择机制，允许控制 benchmark 的自然语言难度：
+Implemented NL difficulty-based template selection mechanism to control benchmark natural language difficulty:
 
 ```bash
-# 使用不同难度运行测试
-python run_quest_bench.py --model MODEL --nl-difficulty precise  # 清晰、简单
-python run_quest_bench.py --model MODEL --nl-difficulty moderate # 均衡
-python run_quest_bench.py --model MODEL --nl-difficulty vague    # 模糊、困难
-python run_quest_bench.py --model MODEL --nl-difficulty random   # 随机（默认）
+# Run tests with different difficulty levels
+python run_quest_bench.py --model MODEL --nl-difficulty precise  # Clear, easy
+python run_quest_bench.py --model MODEL --nl-difficulty moderate # Balanced
+python run_quest_bench.py --model MODEL --nl-difficulty vague    # Ambiguous, hard
+python run_quest_bench.py --model MODEL --nl-difficulty random   # Random (default)
 ```
 
-- **Precise**: 技术术语清晰，参数明确
-- **Moderate**: 一些口语化表达，但仍包含关键参数
-- **Vague**: 口语化，信息不完整或模糊
+- **Precise**: Clear technical terms, explicit parameters
+- **Moderate**: Some colloquial expressions, but key parameters included
+- **Vague**: Colloquial, incomplete or ambiguous information
 
-详见: [doc/FEATURE_UPDATES.md](doc/FEATURE_UPDATES.md)
+See: [doc/FEATURE_UPDATES.md](doc/FEATURE_UPDATES.md)
 
 ### Viem Library Support (2026-03-13)
 
-添加了对 viem 库的支持，以减少 dependency bias：
+Added viem library support to reduce dependency bias:
 
 ```bash
-# 使用 ethers.js (默认)
+# Use ethers.js (default)
 python run_quest_bench.py --model MODEL --library ethers
 
-# 使用 viem
+# Use viem
 python run_quest_bench.py --model MODEL --library viem
 ```
 
-**支持的库**:
-- ✅ **ethers.js v6** - 当前主流，LLM 训练数据中占比高
-- ✅ **viem v2** - 未来趋势，现代化设计，性能优秀
+**Supported libraries**:
+- ✅ **ethers.js v6** - Current mainstream, high representation in LLM training data
+- ✅ **viem v2** - Future trend, modern design, excellent performance
 
-详见: [doc/VIEM_SUPPORT.md](doc/VIEM_SUPPORT.md)
+See: [doc/VIEM_SUPPORT.md](doc/VIEM_SUPPORT.md)
 
 ## Documentation
 
-完整文档位于 `doc/` 目录：
+Complete documentation in `doc/` directory:
 
-- [FEATURE_UPDATES.md](doc/FEATURE_UPDATES.md) - 最新功能更新说明
-- [VIEM_SUPPORT.md](doc/VIEM_SUPPORT.md) - Viem 库支持详情
-- [BSC_BENCH_ARCHITECTURE.md](doc/BSC_BENCH_ARCHITECTURE.md) - 系统架构
-- [QUEST_BENCH_USAGE.md](doc/QUEST_BENCH_USAGE.md) - 使用指南
-- [VALIDATOR_STANDARD_v2.md](doc/VALIDATOR_STANDARD_v2.md) - Validator 标准
-- [JSON_FORMAT_STANDARD_v2.md](doc/JSON_FORMAT_STANDARD_v2.md) - JSON 格式标准
+- [FEATURE_UPDATES.md](doc/FEATURE_UPDATES.md) - Latest feature updates
+- [VIEM_SUPPORT.md](doc/VIEM_SUPPORT.md) - Viem library support details
+- [BSC_BENCH_ARCHITECTURE.md](doc/BSC_BENCH_ARCHITECTURE.md) - System architecture
+- [QUEST_BENCH_USAGE.md](doc/QUEST_BENCH_USAGE.md) - Usage guide
+- [VALIDATOR_STANDARD_v2.md](doc/VALIDATOR_STANDARD_v2.md) - Validator standard
+- [JSON_FORMAT_STANDARD_v2.md](doc/JSON_FORMAT_STANDARD_v2.md) - JSON format standard
 
 ## License
 
