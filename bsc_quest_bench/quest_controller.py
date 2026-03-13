@@ -78,11 +78,13 @@ class QuestController:
             test_mode: bool = False,
             test_code_path: Optional[str] = None,
             env: Optional[QuestEnvironment] = None,
-            naive_mode: bool = False
+            naive_mode: bool = False,
+            nl_difficulty: str = "random",
+            library: str = "ethers"
     ):
         """
         Initialize controller
-        
+
         Args:
             model_name: LLM model name (e.g., "anthropic/claude-sonnet-4", "gpt-4")
             question_path: Path to question configuration file
@@ -94,6 +96,8 @@ class QuestController:
             test_code_path: Path to test code (only valid in test mode)
             env: Optional existing QuestEnvironment instance (for reusing Anvil)
             naive_mode: Naive mode, include question description in prompt (default False, controls difficulty)
+            nl_difficulty: NL template difficulty: "random", "precise", "moderate", or "vague"
+            library: JavaScript library to use: "ethers" or "viem"
         """
         self.model_name = model_name
         self.question_path = question_path
@@ -105,6 +109,8 @@ class QuestController:
         self.test_code_path = test_code_path
         self.reuse_env = env  # Reusable environment instance
         self.naive_mode = naive_mode  # Whether to use Naive mode
+        self.nl_difficulty = nl_difficulty  # NL template difficulty
+        self.library = library  # JavaScript library (ethers or viem)
         
         # Load system config
         self.system_config = self._load_system_config()
@@ -181,10 +187,15 @@ class QuestController:
     
     def _load_system_config(self) -> Dict[str, Any]:
         """Load system configuration (role and environment prompts)"""
-        config_file = Path(__file__).parent / 'system_config.json'
+        # Choose config file based on library
+        if self.library == "viem":
+            config_file = Path(__file__).parent / 'system_config_viem.json'
+        else:  # default to ethers
+            config_file = Path(__file__).parent / 'system_config.json'
+
         if not config_file.exists():
             raise FileNotFoundError(f"System configuration file not found: {config_file}")
-        
+
         with open(config_file, 'r', encoding='utf-8') as f:
             return json.load(f)
     
@@ -332,17 +343,51 @@ class QuestController:
         templates = self.question.get('natural_language_templates', [])
         if not templates:
             raise ValueError("No natural language templates defined for this question")
-        
-        # Choose a random template
+
+        # Load template scores if available
+        import json
+        from pathlib import Path
+        scores_file = Path(__file__).parent / 'nl_template_scores.json'
+        template_scores = {}
+
+        if scores_file.exists():
+            try:
+                with open(scores_file, 'r', encoding='utf-8') as f:
+                    all_scores = json.load(f)
+                    question_id = self.question.get('id')
+                    if question_id in all_scores:
+                        template_scores = {
+                            score_data['template']: score_data['difficulty']
+                            for score_data in all_scores[question_id]
+                        }
+            except Exception as e:
+                print(f"Warning: Could not load template scores: {e}")
+
+        # Choose template based on difficulty setting
         import random
-        template = random.choice(templates)
-        
+        if self.nl_difficulty == 'random' or not template_scores:
+            # Random selection (original behavior)
+            template = random.choice(templates)
+        else:
+            # Filter templates by difficulty
+            filtered_templates = [
+                t for t in templates
+                if template_scores.get(t) == self.nl_difficulty
+            ]
+
+            if filtered_templates:
+                template = random.choice(filtered_templates)
+            else:
+                # Fallback to random if no templates match the difficulty
+                print(f"Warning: No templates found for difficulty '{self.nl_difficulty}', using random selection")
+                template = random.choice(templates)
+
         # Fill in the parameters
         for param_name, param_value in self.generated_params.items():
             param_config = self.question['parameters'][param_name]
             formatted_value = format_parameter_value(param_value, param_config)
             template = template.replace(f"{{{param_name}}}", formatted_value)
-        
+
         return template
     
     def _generate_system_prompt(self) -> str:

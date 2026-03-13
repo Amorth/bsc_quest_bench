@@ -153,8 +153,8 @@ class ERC20TransferPercentageValidator:
         sender_balance_after = state_after.get('token_balance', 0)
         actual_transfer_amount = sender_balance_before - sender_balance_after
         
-        # Allow 2% tolerance for calculation differences
-        tolerance = int(expected_amount_wei * 0.02)
+        # Allow 0.1% tolerance for calculation differences
+        tolerance = int(expected_amount_wei * 0.001)
         amount_correct = abs(actual_transfer_amount - expected_amount_wei) <= tolerance
         
         if amount_correct:

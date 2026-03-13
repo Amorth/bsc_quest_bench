@@ -141,7 +141,7 @@ class ERC20TransferFromBasicValidator:
         expected_amount = actual_amount_wei / 10**self.token_decimals
         
         # 3. Allowance Decreased Correctly (20 points)
-        allowance_valid = abs(allowance_decrease - actual_amount_wei) <= actual_amount_wei * 0.01
+        allowance_valid = abs(allowance_decrease - actual_amount_wei) <= actual_amount_wei * 0.001
         allowance_score = 20 if allowance_valid else 0
         total_score += allowance_score
         
@@ -154,7 +154,7 @@ class ERC20TransferFromBasicValidator:
         })
         
         # 4. From Balance Decreased (20 points)
-        from_balance_valid = abs(from_balance_decrease - actual_amount_wei) <= actual_amount_wei * 0.01
+        from_balance_valid = abs(from_balance_decrease - actual_amount_wei) <= actual_amount_wei * 0.001
         from_balance_score = 20 if from_balance_valid else 0
         total_score += from_balance_score
         
@@ -167,7 +167,7 @@ class ERC20TransferFromBasicValidator:
         })
         
         # 5. To Balance Increased (20 points)
-        to_balance_valid = abs(to_balance_increase - actual_amount_wei) <= actual_amount_wei * 0.01
+        to_balance_valid = abs(to_balance_increase - actual_amount_wei) <= actual_amount_wei * 0.001
         to_balance_score = 20 if to_balance_valid else 0
         total_score += to_balance_score
         

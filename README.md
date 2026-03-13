@@ -645,6 +645,65 @@ python run_quest_bench.py --model gpt-4o --type composite --rerun-indices "5,6,1
 | 45 Composite Tests | ~30-60 minutes |
 | Full Benchmark (107) | ~45-90 minutes |
 
+## Recent Updates
+
+### Feature 2: Tightened Validation Thresholds (2026-03-13)
+
+根据审稿人反馈，我们收紧了验证器的容差阈值以提高评估精度：
+
+- **Transfer 类型**: 从 1-2% 收紧到 **0.1%**
+- **Approval 类型**: 从 1% 收紧到 **0** (精确匹配)
+- **Swap 类型**: 保持不变 (AMM 特性需要容差)
+
+详见: [doc/FEATURE_UPDATES.md](doc/FEATURE_UPDATES.md)
+
+### Feature 3: NL Difficulty Control (2026-03-13)
+
+实现了基于 NL 难度的模板选择机制，允许控制 benchmark 的自然语言难度：
+
+```bash
+# 使用不同难度运行测试
+python run_quest_bench.py --model MODEL --nl-difficulty precise  # 清晰、简单
+python run_quest_bench.py --model MODEL --nl-difficulty moderate # 均衡
+python run_quest_bench.py --model MODEL --nl-difficulty vague    # 模糊、困难
+python run_quest_bench.py --model MODEL --nl-difficulty random   # 随机（默认）
+```
+
+- **Precise**: 技术术语清晰，参数明确
+- **Moderate**: 一些口语化表达，但仍包含关键参数
+- **Vague**: 口语化，信息不完整或模糊
+
+详见: [doc/FEATURE_UPDATES.md](doc/FEATURE_UPDATES.md)
+
+### Viem Library Support (2026-03-13)
+
+添加了对 viem 库的支持，以减少 dependency bias：
+
+```bash
+# 使用 ethers.js (默认)
+python run_quest_bench.py --model MODEL --library ethers
+
+# 使用 viem
+python run_quest_bench.py --model MODEL --library viem
+```
+
+**支持的库**:
+- ✅ **ethers.js v6** - 当前主流，LLM 训练数据中占比高
+- ✅ **viem v2** - 未来趋势，现代化设计，性能优秀
+
+详见: [doc/VIEM_SUPPORT.md](doc/VIEM_SUPPORT.md)
+
+## Documentation
+
+完整文档位于 `doc/` 目录：
+
+- [FEATURE_UPDATES.md](doc/FEATURE_UPDATES.md) - 最新功能更新说明
+- [VIEM_SUPPORT.md](doc/VIEM_SUPPORT.md) - Viem 库支持详情
+- [BSC_BENCH_ARCHITECTURE.md](doc/BSC_BENCH_ARCHITECTURE.md) - 系统架构
+- [QUEST_BENCH_USAGE.md](doc/QUEST_BENCH_USAGE.md) - 使用指南
+- [VALIDATOR_STANDARD_v2.md](doc/VALIDATOR_STANDARD_v2.md) - Validator 标准
+- [JSON_FORMAT_STANDARD_v2.md](doc/JSON_FORMAT_STANDARD_v2.md) - JSON 格式标准
+
 ## License
 
 MIT License
@@ -654,6 +713,7 @@ MIT License
 Built with:
 - [Foundry/Anvil](https://github.com/foundry-rs/foundry) - Local EVM simulation
 - [ethers.js](https://docs.ethers.org/) - Ethereum library
+- [viem](https://viem.sh/) - Modern Ethereum library
 - [web3.py](https://web3py.readthedocs.io/) - Python Web3 interface
 - [Bun](https://bun.sh/) - Fast TypeScript runtime
 

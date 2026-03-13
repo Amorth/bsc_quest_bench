@@ -201,10 +201,11 @@ class TeeWriter:
 class QuestBenchRunner:
     """Quest Bench Evaluation Runner"""
     
-    def __init__(self, model_name: str, api_key: Optional[str] = None, 
+    def __init__(self, model_name: str, api_key: Optional[str] = None,
                  base_url: Optional[str] = None, fork_url: str = "https://bsc-dataseed.binance.org",
                  run_index: int = 0, naive_mode: bool = False, start_index: int = 0,
-                 failed_log_file = None, rerun_indices: Optional[set] = None):
+                 failed_log_file = None, rerun_indices: Optional[set] = None,
+                 nl_difficulty: str = "random", library: str = "ethers"):
         self.model_name = model_name
         self.api_key = api_key
         self.base_url = base_url
@@ -215,6 +216,8 @@ class QuestBenchRunner:
         self.failed_log_file = failed_log_file  # For real-time failed log writing
         self.failed_count = 0
         self.rerun_indices = rerun_indices  # Set of indices to rerun (None = run all)
+        self.nl_difficulty = nl_difficulty  # NL template difficulty
+        self.library = library  # JavaScript library (ethers or viem)
         
         # Results storage
         self.results = {
@@ -800,7 +803,9 @@ class QuestBenchRunner:
             fork_url=self.fork_url,
             test_mode=False,  # Use LLM
             env=env,
-            naive_mode=self.naive_mode
+            naive_mode=self.naive_mode,
+            nl_difficulty=self.nl_difficulty,
+            library=self.library
         )
         
         # Run evaluation
@@ -1063,7 +1068,21 @@ Examples:
         default=None,
         help='Comma-separated list of question indices to rerun (0-based). E.g., "5,6,13,15,20,27,29,30,43" to only run these specific questions.'
     )
-    
+    parser.add_argument(
+        '--nl-difficulty',
+        type=str,
+        default='random',
+        choices=['random', 'precise', 'moderate', 'vague'],
+        help='Natural language template difficulty: random (default), precise (clear/easy), moderate (balanced), vague (ambiguous/hard)'
+    )
+    parser.add_argument(
+        '--library',
+        type=str,
+        default='ethers',
+        choices=['ethers', 'viem'],
+        help='JavaScript library to use: ethers (default) or viem'
+    )
+
     args = parser.parse_args()
 
     # Parse rerun_indices if provided
@@ -1136,7 +1155,9 @@ Examples:
             naive_mode=args.naive_mode,
             start_index=args.start_index,
             failed_log_file=failed_log_file,
-            rerun_indices=rerun_indices_set
+            rerun_indices=rerun_indices_set,
+            nl_difficulty=args.nl_difficulty,
+            library=args.library
         )
         
         # Determine questions to test

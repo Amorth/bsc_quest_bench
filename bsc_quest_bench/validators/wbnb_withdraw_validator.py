@@ -182,8 +182,8 @@ class WBNBWithdrawValidator:
         expected_bnb_after = bnb_balance_before + self.expected_amount - gas_cost
         bnb_diff = abs(bnb_balance_after - expected_bnb_after)
         
-        # Allow larger tolerance for BNB balance (gas estimation variations)
-        bnb_tolerance = int(self.expected_amount * 0.01)  # 1% tolerance
+        # Allow 0.1% tolerance for BNB balance (gas estimation variations)
+        bnb_tolerance = int(self.expected_amount * 0.001)  # 0.1% tolerance
         bnb_balance_correct = bnb_diff <= bnb_tolerance
         
         if bnb_balance_correct:

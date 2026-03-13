@@ -138,8 +138,8 @@ class BNBTransferToContractValidator:
         expected_contract_balance = contract_balance_before + self.expected_amount
         balance_diff = abs(contract_balance_after - expected_contract_balance)
         
-        # Allow small tolerance for rounding errors
-        tolerance = 100  # 100 wei
+        # Allow 0.1% tolerance for rounding errors
+        tolerance = max(int(self.expected_amount * 0.001), 1)
         balance_correct = balance_diff <= tolerance
         
         if balance_correct:

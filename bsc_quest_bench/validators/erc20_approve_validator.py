@@ -91,8 +91,8 @@ class ERC20ApproveValidator:
                     params_match = False
                     param_mismatch_details.append(f"spender mismatch: expected {self.spender_address}, got {actual_spender}")
                 
-                # Allow 1% tolerance for amount
-                if abs(actual_amount_wei - self.amount_wei) > self.amount_wei * 0.01:
+                # No tolerance for amount (exact match required)
+                if abs(actual_amount_wei - self.amount_wei) > 0:
                     params_match = False
                     param_mismatch_details.append(f"amount mismatch: expected {self.amount:.2f}, got {actual_amount_wei / 10**self.token_decimals:.2f}")
                 
@@ -116,8 +116,8 @@ class ERC20ApproveValidator:
         
         # 3. Allowance Set Correctly (40 points)
         # approve() SETS the allowance to the specified amount (not increases it)
-        # So we check if allowance_after equals the approved amount
-        allowance_valid = abs(allowance_after - actual_amount_wei) <= actual_amount_wei * 0.01
+        # So we check if allowance_after equals the approved amount (exact match)
+        allowance_valid = allowance_after == actual_amount_wei
         allowance_score = 40 if allowance_valid else 0
         total_score += allowance_score
         

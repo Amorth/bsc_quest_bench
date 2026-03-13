@@ -76,8 +76,8 @@ class BNBTransferPercentageValidator:
         # Check 3: Transfer amount is correct percentage (30 points)
         actual_value = int(tx.get('value', 0))
         
-        # Allow 2% tolerance for calculation differences
-        tolerance = int(expected_amount_wei * 0.02)
+        # Allow 0.1% tolerance for calculation differences
+        tolerance = int(expected_amount_wei * 0.001)
         amount_correct = abs(actual_value - expected_amount_wei) <= tolerance
         
         checks.append({
@@ -121,8 +121,8 @@ class BNBTransferPercentageValidator:
         gas_cost = gas_used * receipt.get('effectiveGasPrice', 0)
         expected_balance_change = actual_value + gas_cost
         
-        # Allow 2% tolerance
-        balance_tolerance = int(expected_balance_change * 0.02)
+        # Allow 0.1% tolerance
+        balance_tolerance = int(expected_balance_change * 0.001)
         balance_correct = abs(balance_change - expected_balance_change) <= balance_tolerance
         
         checks.append({

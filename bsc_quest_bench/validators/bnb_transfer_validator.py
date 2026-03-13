@@ -120,7 +120,7 @@ class BNBTransferValidator:
         expected_balance_change = actual_value + gas_cost
         
         # Allow small margin of error
-        balance_tolerance = int(expected_balance_change * 0.01)  # 1% tolerance
+        balance_tolerance = int(expected_balance_change * 0.001)  # 0.1% tolerance
         balance_correct = abs(balance_change - expected_balance_change) <= balance_tolerance
         
         checks.append({

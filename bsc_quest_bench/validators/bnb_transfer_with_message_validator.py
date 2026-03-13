@@ -198,8 +198,8 @@ class BNBTransferWithMessageValidator:
         expected_balance = balance_before - self.expected_amount - gas_cost
         balance_diff = abs(balance_after - expected_balance)
         
-        # Allow small tolerance for rounding errors
-        tolerance = 1000  # 1000 wei
+        # Allow 0.1% tolerance for rounding errors
+        tolerance = max(int(self.expected_amount * 0.001), 1)
         balance_correct = balance_diff <= tolerance
         
         if balance_correct:

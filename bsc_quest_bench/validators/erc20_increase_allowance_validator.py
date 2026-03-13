@@ -92,8 +92,8 @@ class ERC20IncreaseAllowanceValidator:
                     params_match = False
                     param_mismatch_details.append(f"spender mismatch: expected {self.spender_address}, got {actual_spender}")
                 
-                # Allow 1% tolerance for amount
-                if abs(actual_added_value_wei - self.added_value_wei) > self.added_value_wei * 0.01:
+                # No tolerance for amount (exact match required)
+                if abs(actual_added_value_wei - self.added_value_wei) > 0:
                     params_match = False
                     param_mismatch_details.append(f"added_value mismatch: expected {self.added_value:.2f}, got {actual_added_value_wei / 10**self.token_decimals:.2f}")
                 
@@ -117,8 +117,8 @@ class ERC20IncreaseAllowanceValidator:
         
         # 3. Allowance Increased Correctly (40 points)
         # increaseAllowance() ADDS to the current allowance
-        # So we check if allowance increased by the specified addedValue
-        allowance_valid = abs(allowance_increase - actual_added_value_wei) <= actual_added_value_wei * 0.01
+        # So we check if allowance increased by the specified addedValue (exact match)
+        allowance_valid = allowance_increase == actual_added_value_wei
         allowance_score = 40 if allowance_valid else 0
         total_score += allowance_score
         

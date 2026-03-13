@@ -93,8 +93,8 @@ class ERC20DecreaseAllowanceValidator:
                     params_match = False
                     param_mismatch_details.append(f"spender mismatch: expected {self.spender_address}, got {actual_spender}")
                 
-                # Allow 1% tolerance for amount
-                if abs(actual_subtracted_value_wei - self.subtracted_value_wei) > self.subtracted_value_wei * 0.01:
+                # No tolerance for amount (exact match required)
+                if abs(actual_subtracted_value_wei - self.subtracted_value_wei) > 0:
                     params_match = False
                     param_mismatch_details.append(f"subtracted_value mismatch: expected {self.subtracted_value:.2f}, got {actual_subtracted_value_wei / 10**self.token_decimals:.2f}")
                 
@@ -118,8 +118,8 @@ class ERC20DecreaseAllowanceValidator:
         
         # 3. Allowance Decreased Correctly (40 points)
         # decreaseAllowance() SUBTRACTS from the current allowance
-        # So we check if allowance decreased by the specified subtractedValue
-        allowance_valid = abs(allowance_decrease - actual_subtracted_value_wei) <= actual_subtracted_value_wei * 0.01
+        # So we check if allowance decreased by the specified subtractedValue (exact match)
+        allowance_valid = allowance_decrease == actual_subtracted_value_wei
         allowance_score = 40 if allowance_valid else 0
         total_score += allowance_score
         
